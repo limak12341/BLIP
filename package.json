@@ -1,0 +1,20 @@
+{
+  "name": "bloxyflip",
+  "version": "2.0.0",
+  "description": "BFLIP – coinflip game z logowaniem Roblox",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "type": "commonjs",
+  "dependencies": {
+    "@seald-io/nedb": "^4.1.2",
+    "axios": "^1.7.2",
+    "express": "^4.18.2",
+    "express-session": "^1.18.0",
+    "socket.io": "^4.8.3"
+  }
+}

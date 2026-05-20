@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BFLIP PVP</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="login-overlay" class="login-overlay">
+  <div class="login-box">
+    <div class="login-logo">B<span>FLIP</span></div>
+    <p class="login-sub">Zaloguj się przez weryfikację Bio Roblox</p>
+    
+    <div id="verify-step-1">
+        <input type="text" id="rob-nick" placeholder="Twój nick z Roblox" style="width:100%; padding:12px; margin-bottom:10px; background:var(--surf2); border:1px solid var(--border2); border-radius:8px; color:white; font-family:inherit;">
+        <button onclick="startVerification()" class="flip-btn">1. Generuj kod</button>
+    </div>
+    
+    <div id="verify-step-2" style="display:none; text-align:center;">
+        <p class="login-note">Wklej ten kod w swoje Bio na Robloxie:</p>
+        <div id="code-display" style="padding:15px; background:var(--surf2); border-radius:8px; color:var(--gold); font-weight:bold; font-size:1.2rem; margin:10px 0; font-family:monospace;"></div>
+        <button onclick="checkVerification()" class="flip-btn" style="background:#2ed573;">2. Sprawdź, czy ustawiłem</button>
+    </div>
+
+    <p id="login-error" class="login-error"></p>
+    <p class="login-note">Nowe konto startuje z 🪙 1 000 monet</p>
+  </div>
+</div>
+
+<div id="create-modal" class="modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">⚡ Stwórz grę PVP</span>
+      <button class="modal-close" onclick="closeCreateModal()">✕</button>
+    </div>
+    <label class="form-label">Twoja strona monety</label>
+    <div class="side-selector">
+      <button class="choice-btn heads-btn active" id="modal-heads" onclick="selectModalSide('heads')">
+        <span class="choice-icon">🪙</span>ORZEŁ
+      </button>
+      <button class="choice-btn tails-btn" id="modal-tails" onclick="selectModalSide('tails')">
+        <span class="choice-icon">💧</span>RESZKA
+      </button>
+    </div>
+    <label class="form-label" style="margin-top:20px">Kwota zakładu</label>
+    <div class="bet-input-wrap">
+      <span class="bet-prefix">🪙</span>
+      <input type="number" id="modal-bet" value="50" min="1">
+    </div>
+    <div class="bet-quick" style="margin-top:8px">
+      <button class="quick-btn" onclick="setModalBet(10)">10</button>
+      <button class="quick-btn" onclick="setModalBet(50)">50</button>
+      <button class="quick-btn" onclick="setModalBet(100)">100</button>
+      <button class="quick-btn" onclick="setModalBet(500)">500</button>
+      <button class="quick-btn" onclick="setModalBet(balance)">MAX</button>
+    </div>
+    <div class="modal-info">
+      Wygrany zabiera <strong id="modal-total">🪙 100</strong>
+    </div>
+    <button class="flip-btn" onclick="submitCreateGame()" style="margin-top:20px">Stwórz grę</button>
+  </div>
+</div>
+
+<div id="result-modal" class="modal-overlay">
+  <div class="modal modal-result">
+    <div class="result-vs">
+      <div class="result-player">
+        <img class="res-avatar" id="res-you-img" src="" alt="">
+        <span class="res-name" id="res-you-name">Ty</span>
+        <span class="res-side" id="res-you-side"></span>
+      </div>
+      <div class="result-center">
+        <div class="big-coin-wrap">
+          <div class="big-coin" id="big-coin">
+            <div class="coin-face heads-face"><span>ORZEŁ</span></div>
+            <div class="coin-face tails-face"><span>RESZKA</span></div>
+          </div>
+        </div>
+        <span class="vs-text">VS</span>
+      </div>
+      <div class="result-player">
+        <img class="res-avatar" id="res-opp-img" src="" alt="">
+        <span class="res-name" id="res-opp-name">Przeciwnik</span>
+        <span class="res-side" id="res-opp-side"></span>
+      </div>
+    </div>
+    <div id="res-banner" class="res-banner"></div>
+    <button class="flip-btn" onclick="closeResultModal()" id="res-close-btn" style="display:none;margin-top:16px">Zamknij</button>
+  </div>
+</div>
+
+<nav class="navbar">
+  <div class="logo">B<span>FLIP</span></div>
+  <div class="nav-tabs">
+    <button class="nav-tab active" onclick="showTab('lobby')">⚡ Lobby</button>
+    <button class="nav-tab" onclick="showTab('history')">📜 Historia</button>
+  </div>
+  <div class="nav-right">
+    <div class="nav-user" id="nav-user" style="display:none">
+      <img id="nav-avatar-img" class="user-avatar-img" src="" alt="avatar">
+      <span class="user-name" id="nav-username">—</span>
+    </div>
+    <div class="balance-box">
+      <span>🪙</span><span id="balance-amount">—</span>
+    </div>
+    <a href="/logout" id="logout-btn" class="logout-btn" style="display:none">Wyloguj</a>
+  </div>
+</nav>
+
+<main class="main-container">
+  <div id="tab-lobby">
+    <div class="lobby-toolbar">
+      <div class="lobby-info">
+        <span id="lobby-count" class="lobby-count">0 gier</span>
+        <span class="lobby-sub">aktywnych w lobby</span>
+      </div>
+      <button class="btn-create" id="btn-create" onclick="openCreateModal()">✦ Stwórz grę</button>
+    </div>
+    <div id="games-list" class="games-list">
+      <div class="empty-lobby" id="empty-lobby">
+        <div class="empty-icon">🪙</div>
+        <p>Brak aktywnych gier</p>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-history" style="display:none">
+    <div class="history-header-bar">
+      <span class="history-page-title">📜 Historia bitew</span>
+      <div class="history-summary" id="history-summary"></div>
+    </div>
+    <div id="history-table-wrap">
+      <div class="empty-lobby"><div class="empty-icon">📜</div><p>Brak historii</p></div>
+    </div>
+  </div>
+</main>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="script.js"></script>
+<script>
+// Funkcje logowania weryfikacją Bio
+async function startVerification() {
+    const username = document.getElementById('rob-nick').value;
+    const res = await fetch('/verify-start', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ username }) });
+    const data = await res.json();
+    document.getElementById('code-display').innerText = data.code;
+    document.getElementById('verify-step-1').style.display = 'none';
+    document.getElementById('verify-step-2').style.display = 'block';
+}
+
+async function checkVerification() {
+    const username = document.getElementById('rob-nick').value.trim();
+    const res = await fetch('/verify-check', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ username }) });
+    const data = await res.json();
+    if (data.success) location.reload();
+    else alert(data.message || "Kod nie został znaleziony w Bio!");
+}
+</script>
+</body>
+</html>
