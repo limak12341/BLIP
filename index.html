@@ -10,27 +10,26 @@
 </head>
 <body>
 
+<!-- ── LOGIN ─────────────────────────────────────── -->
 <div id="login-overlay" class="login-overlay">
   <div class="login-box">
     <div class="login-logo">B<span>FLIP</span></div>
     <p class="login-sub">Zaloguj się przez weryfikację Bio Roblox</p>
-    
     <div id="verify-step-1">
-        <input type="text" id="rob-nick" placeholder="Twój nick z Roblox" style="width:100%; padding:12px; margin-bottom:10px; background:var(--surf2); border:1px solid var(--border2); border-radius:8px; color:white; font-family:inherit;">
-        <button onclick="startVerification()" class="flip-btn">1. Generuj kod</button>
+      <input type="text" id="rob-nick" placeholder="Twój nick z Roblox" class="login-input">
+      <button onclick="startVerification()" class="flip-btn" style="margin-top:10px">1. Generuj kod</button>
     </div>
-    
     <div id="verify-step-2" style="display:none; text-align:center;">
-        <p class="login-note">Wklej ten kod w swoje Bio na Robloxie:</p>
-        <div id="code-display" style="padding:15px; background:var(--surf2); border-radius:8px; color:var(--gold); font-weight:bold; font-size:1.2rem; margin:10px 0; font-family:monospace;"></div>
-        <button onclick="checkVerification()" class="flip-btn" style="background:#2ed573;">2. Sprawdź, czy ustawiłem</button>
+      <p class="login-note" style="margin-bottom:8px">Wklej ten kod w swoje Bio na Robloxie:</p>
+      <div id="code-display" class="code-box"></div>
+      <button onclick="checkVerification()" class="flip-btn" style="background:#2ed573;margin-top:12px">2. Sprawdź →</button>
     </div>
-
     <p id="login-error" class="login-error"></p>
-    <p class="login-note">Nowe konto startuje z 🪙 1 000 monet</p>
+    <p class="login-note" style="margin-top:16px">Nowe konto startuje z 🪙 1 000 monet</p>
   </div>
 </div>
 
+<!-- ── MODAL: STWÓRZ GRĘ ─────────────────────────── -->
 <div id="create-modal" class="modal-overlay">
   <div class="modal">
     <div class="modal-header">
@@ -49,7 +48,7 @@
     <label class="form-label" style="margin-top:20px">Kwota zakładu</label>
     <div class="bet-input-wrap">
       <span class="bet-prefix">🪙</span>
-      <input type="number" id="modal-bet" value="50" min="1">
+      <input type="number" id="modal-bet" value="50" min="1" oninput="updateTotal()">
     </div>
     <div class="bet-quick" style="margin-top:8px">
       <button class="quick-btn" onclick="setModalBet(10)">10</button>
@@ -58,13 +57,75 @@
       <button class="quick-btn" onclick="setModalBet(500)">500</button>
       <button class="quick-btn" onclick="setModalBet(balance)">MAX</button>
     </div>
-    <div class="modal-info">
-      Wygrany zabiera <strong id="modal-total">🪙 100</strong>
-    </div>
+    <div class="modal-info">Wygrany zabiera <strong id="modal-total">🪙 100</strong></div>
     <button class="flip-btn" onclick="submitCreateGame()" style="margin-top:20px">Stwórz grę</button>
   </div>
 </div>
 
+<!-- ── MODAL: VIEW GRY (bloxypot style) ──────────── -->
+<div id="view-modal" class="modal-overlay">
+  <div class="modal view-modal-inner">
+    <button class="modal-close" onclick="closeViewModal()" style="position:absolute;top:16px;right:16px">✕</button>
+
+    <div class="view-vs-row">
+      <!-- CREATOR -->
+      <div class="view-player">
+        <div class="view-avatar-wrap">
+          <img id="view-creator-img" class="view-avatar" src="" alt="">
+          <div class="view-side-badge" id="view-creator-badge">H</div>
+        </div>
+        <span class="view-username" id="view-creator-name">—</span>
+      </div>
+
+      <!-- CENTER -->
+      <div class="view-center">
+        <span class="view-vs">Vs</span>
+        <div class="view-gameid" id="view-gameid">#———</div>
+      </div>
+
+      <!-- JOINER / WAITING -->
+      <div class="view-player">
+        <div class="view-avatar-wrap">
+          <div class="view-avatar view-avatar-empty" id="view-joiner-avatar">?</div>
+        </div>
+        <span class="view-username" id="view-joiner-name">Waiting...</span>
+      </div>
+    </div>
+
+    <!-- AMOUNTS ROW -->
+    <div class="view-amounts">
+      <div class="view-amount-block">
+        <span class="view-coins" id="view-creator-coins">🪙 0</span>
+        <span class="view-pct" id="view-creator-pct">50.00%</span>
+      </div>
+      <div class="view-amount-block" style="text-align:right">
+        <span class="view-coins" id="view-joiner-coins">🪙 0</span>
+        <span class="view-pct" id="view-joiner-pct">50.00%</span>
+      </div>
+    </div>
+
+    <!-- PROGRESS BAR -->
+    <div class="view-bar-wrap">
+      <div class="view-bar-fill" id="view-bar-fill"></div>
+    </div>
+
+    <!-- ITEM ROW -->
+    <div class="view-item-row">
+      <div class="view-item" id="view-item-box">
+        <div class="view-item-icon">🪙</div>
+        <div class="view-item-info">
+          <span id="view-item-label">Zakład</span>
+          <span class="view-item-val" id="view-item-val">🪙 0</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- JOIN BUTTON (jeśli nie moja gra) -->
+    <button class="btn-join-big" id="view-join-btn" onclick="joinFromView()">Join</button>
+  </div>
+</div>
+
+<!-- ── MODAL: WYNIK GRY ───────────────────────────── -->
 <div id="result-modal" class="modal-overlay">
   <div class="modal modal-result">
     <div class="result-vs">
@@ -93,6 +154,7 @@
   </div>
 </div>
 
+<!-- ── NAVBAR ─────────────────────────────────────── -->
 <nav class="navbar">
   <div class="logo">B<span>FLIP</span></div>
   <div class="nav-tabs">
@@ -111,7 +173,10 @@
   </div>
 </nav>
 
+<!-- ── MAIN ───────────────────────────────────────── -->
 <main class="main-container">
+
+  <!-- TAB: LOBBY -->
   <div id="tab-lobby">
     <div class="lobby-toolbar">
       <div class="lobby-info">
@@ -124,40 +189,50 @@
       <div class="empty-lobby" id="empty-lobby">
         <div class="empty-icon">🪙</div>
         <p>Brak aktywnych gier</p>
+        <p class="empty-sub">Stwórz nową grę i poczekaj na przeciwnika</p>
       </div>
     </div>
   </div>
 
+  <!-- TAB: HISTORIA -->
   <div id="tab-history" style="display:none">
     <div class="history-header-bar">
       <span class="history-page-title">📜 Historia bitew</span>
       <div class="history-summary" id="history-summary"></div>
     </div>
     <div id="history-table-wrap">
-      <div class="empty-lobby"><div class="empty-icon">📜</div><p>Brak historii</p></div>
+      <div class="empty-lobby">
+        <div class="empty-icon">📜</div>
+        <p>Brak historii gier</p>
+        <p class="empty-sub">Zagraj pierwszą grę PVP!</p>
+      </div>
     </div>
   </div>
+
 </main>
 
 <script src="/socket.io/socket.io.js"></script>
 <script src="script.js"></script>
 <script>
-// Funkcje logowania weryfikacją Bio
 async function startVerification() {
-    const username = document.getElementById('rob-nick').value;
-    const res = await fetch('/verify-start', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ username }) });
+    const username = document.getElementById('rob-nick').value.trim();
+    if (!username) return alert('Wpisz nick!');
+    const res = await fetch('/verify-start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ username }) });
     const data = await res.json();
-    document.getElementById('code-display').innerText = data.code;
-    document.getElementById('verify-step-1').style.display = 'none';
-    document.getElementById('verify-step-2').style.display = 'block';
+    if (data.code) {
+        document.getElementById('code-display').innerText = data.code;
+        document.getElementById('verify-step-1').style.display = 'none';
+        document.getElementById('verify-step-2').style.display = 'block';
+    } else {
+        document.getElementById('login-error').textContent = data.message || 'Błąd!';
+    }
 }
-
 async function checkVerification() {
     const username = document.getElementById('rob-nick').value.trim();
-    const res = await fetch('/verify-check', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ username }) });
+    const res = await fetch('/verify-check', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ username }) });
     const data = await res.json();
     if (data.success) location.reload();
-    else alert(data.message || "Kod nie został znaleziony w Bio!");
+    else document.getElementById('login-error').textContent = data.message || 'Kod nie znaleziony w Bio!';
 }
 </script>
 </body>

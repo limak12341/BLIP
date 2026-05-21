@@ -283,19 +283,58 @@ io.on('connection', (socket) => {
                 game.status = 'flipping';
                 removeLobbyGame(game.id);
                 broadcastGames();
+
+                const flipPayload = {
+                    gameId: game.id,
+                    bet: game.bet,
+                    creator: {
+                        username: game.creator.username,
+                        avatarUrl: game.creator.avatarUrl,
+                        side: game.creator.side
+                    },
+                    joiner: {
+                        username: game.joiner.username,
+                        avatarUrl: game.joiner.avatarUrl,
+                        side: game.joiner.side
+                    }
+                };
+                const creatorSock = io.sockets.sockets.get(game.creator.socketId);
+                if (creatorSock) creatorSock.emit('flipStart', flipPayload);
+                socket.emit('flipStart', flipPayload);
+
                 setTimeout(() => {
                     const winningSide = Math.random() < 0.5 ? 'heads' : 'tails';
                     const creatorWon = game.creator.side === winningSide;
                     const prize = game.bet * 2;
                     const winnerId = creatorWon ? game.creator.robloxId : game.joiner.robloxId;
-                    db.findOne({ _id: winnerId }, (err, doc) => { if (doc) updateBalance(winnerId, doc.balance + prize, () => {}); });
+                    db.findOne({ _id: winnerId }, (err, doc) => {
+                        if (doc) {
+                            const newBal = doc.balance + prize;
+                            updateBalance(winnerId, newBal, () => {
+                                const winnerSock = creatorWon ? creatorSock : socket;
+                                if (winnerSock) winnerSock.emit('balanceUpdate', newBal);
+                            });
+                        }
+                    });
                     saveGameToHistory(game, winningSide);
-                    const creatorSock = io.sockets.sockets.get(game.creator.socketId);
-                    if (creatorSock) creatorSock.emit('gameResult', { gameId: game.id, winningSide, won: creatorWon, prize: creatorWon ? prize : 0 });
-                    socket.emit('gameResult', { gameId: game.id, winningSide, won: !creatorWon, prize: !creatorWon ? prize : 0 });
+
+                    const resultBase = { ...flipPayload, winningSide };
+                    if (creatorSock) {
+                        creatorSock.emit('gameResult', {
+                            ...resultBase,
+                            won: creatorWon,
+                            prize: creatorWon ? prize : 0
+                        });
+                    }
+                    socket.emit('gameResult', {
+                        ...resultBase,
+                        won: !creatorWon,
+                        prize: !creatorWon ? prize : 0
+                    });
+
                     activeGames.delete(game.id);
                     broadcastGames();
-                }, 500);
+                }, 2600);
             });
         });
     });
