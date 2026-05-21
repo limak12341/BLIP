@@ -154,12 +154,58 @@
   </div>
 </div>
 
+<!-- ── MODAL: DEPOZYT ─────────────────────────────── -->
+<div id="deposit-modal" class="modal-overlay">
+  <div class="modal modal-wide">
+    <div class="modal-header">
+      <span class="modal-title">📥 Deposit (PS99 trade)</span>
+      <button class="modal-close" onclick="closeDepositModal()">✕</button>
+    </div>
+
+    <div class="deposit-top">
+      <input class="login-input" id="dep-search" placeholder="Nazwa itemu (opcjonalnie)" style="margin-bottom:0">
+      <button class="btn-create" style="padding:10px 16px" onclick="addDepositRowFromSearch()">Dodaj</button>
+    </div>
+
+    <div class="deposit-hint" id="deposit-hint"></div>
+
+    <div id="deposit-rows" class="dep-rows"></div>
+
+    <label class="form-label" style="margin-top:14px">Notatka (opcjonalnie)</label>
+    <input class="login-input" id="dep-note" placeholder="np. wysłałem trade 21:37, nick: ..." style="margin-bottom:0">
+
+    <button class="flip-btn" onclick="submitDepositRequest()" style="margin-top:16px">Zgłoś depozyt</button>
+  </div>
+</div>
+
+<!-- ── MODAL: WYPŁATA ─────────────────────────────── -->
+<div id="withdraw-modal" class="modal-overlay">
+  <div class="modal modal-wide">
+    <div class="modal-header">
+      <span class="modal-title">📤 Withdraw (PS99 trade)</span>
+      <button class="modal-close" onclick="closeWithdrawModal()">✕</button>
+    </div>
+
+    <div class="deposit-hint" style="margin-top:0">
+      Wybierz itemy z inventarza na stronie i zgłoś wypłatę. Admin potwierdzi i wyśle trade.
+    </div>
+
+    <div id="withdraw-items" class="inv-grid"></div>
+
+    <label class="form-label" style="margin-top:14px">Notatka (opcjonalnie)</label>
+    <input class="login-input" id="wd-note" placeholder="np. mój nick PS99 / godzina" style="margin-bottom:0">
+
+    <button class="flip-btn" onclick="submitWithdrawRequest()" style="margin-top:16px">Zgłoś wypłatę</button>
+  </div>
+</div>
+
 <!-- ── NAVBAR ─────────────────────────────────────── -->
 <nav class="navbar">
   <div class="logo">B<span>FLIP</span></div>
   <div class="nav-tabs">
-    <button class="nav-tab active" onclick="showTab('lobby')">⚡ Lobby</button>
-    <button class="nav-tab" onclick="showTab('history')">📜 Historia</button>
+    <button class="nav-tab active" data-tab="lobby" onclick="showTab('lobby')">⚡ Lobby</button>
+    <button class="nav-tab" data-tab="history" onclick="showTab('history')">📜 Historia</button>
+    <button class="nav-tab" data-tab="deposit" onclick="showTab('deposit')">🎒 Depozyt</button>
   </div>
   <div class="nav-right">
     <div class="nav-user" id="nav-user" style="display:none">
@@ -209,6 +255,37 @@
     </div>
   </div>
 
+  <!-- TAB: DEPOZYT -->
+  <div id="tab-deposit" style="display:none">
+    <div class="lobby-toolbar">
+      <div class="lobby-info">
+        <span class="lobby-count" style="color:var(--gold)">Inventarz</span>
+        <span class="lobby-sub">na stronie (po approve admina)</span>
+      </div>
+      <div style="display:flex;gap:10px">
+        <button class="btn-create" onclick="openDepositModal()">Deposit</button>
+        <button class="btn-create" style="background:rgba(255,255,255,.06);border:1px solid var(--border2);color:var(--text);box-shadow:none" onclick="openWithdrawModal()">Withdraw</button>
+      </div>
+    </div>
+
+    <div class="dep-grid">
+      <div class="dep-card">
+        <div class="dep-card-title">🎒 Twoje itemy</div>
+        <div id="inventory-list" class="inv-grid"></div>
+        <div id="inventory-empty" class="empty-mini" style="display:none">Brak itemów na stronie.</div>
+      </div>
+      <div class="dep-card">
+        <div class="dep-card-title">🧾 Zgłoszenia</div>
+        <div id="requests-list" class="req-list"></div>
+        <div id="requests-empty" class="empty-mini" style="display:none">Brak zgłoszeń.</div>
+      </div>
+    </div>
+
+    <div class="deposit-hint" style="margin-top:14px">
+      Uwaga: PS99 to cudza gra, więc strona nie odczyta automatycznie trade. Depozyt/wypłata działa przez zgłoszenia i ręczne potwierdzenie admina.
+    </div>
+  </div>
+
 </main>
 
 <script src="/socket.io/socket.io.js"></script>
@@ -237,3 +314,4 @@ async function checkVerification() {
 </script>
 </body>
 </html>
+

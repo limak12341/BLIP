@@ -45,6 +45,7 @@ GitHub poprosi o login — użyj konta lub [Personal Access Token](https://githu
 5. **Environment Variables** (opcjonalnie — Render może sam z `render.yaml`):
    - `NODE_ENV` = `production`
    - `SESSION_SECRET` → **Generate** (losowy klucz)
+   - `ADMIN_TOKEN` → ustaw swój token admina (np. długi losowy ciąg)
 6. **Create Web Service** — czekaj 3–8 minut na pierwszy deploy.
 
 ---
@@ -72,23 +73,3 @@ git push
 
 Render sam przebuduje stronę (2–5 min).
 
----
-
-## Problemy
-
-| Problem | Rozwiązanie |
-|---------|-------------|
-| Deploy failed | W Render → **Logs** — zwykle brak `package.json` lub błąd w `server.js` |
-| Strona się nie ładuje długo | Free tier — poczekaj minutę (cold start) |
-| Saldo / historia zniknęły | Na Free dysk bywa resetowany przy redeploy — normalne na darmowym planie |
-| Logowanie Roblox | Bio verification działa; OAuth wymaga ustawienia Client ID w Render env |
-
----
-
-## Lokalnie vs internet
-
-| | Lokalnie `npm start` | Render |
-|--|---------------------|--------|
-| Adres | localhost:5000 | https://....onrender.com |
-| Laptop musi być włączony | Tak | Nie |
-| Cały świat | Nie (bez ngrok) | Tak |

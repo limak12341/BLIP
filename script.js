@@ -9,17 +9,27 @@ let lobbyGames      = [];
 let viewingGameId   = null;
 const FLIP_MS       = 2200;
 
+// Depozyty / inventarz
+let myInventory = [];
+let myRequests  = [];
+let withdrawSelection = new Map(); // nameLower -> qty
+
 // ── DOM ───────────────────────────────────────────────────────
-const loginOverlay  = document.getElementById('login-overlay');
-const navAvatarImg  = document.getElementById('nav-avatar-img');
-const navUsername   = document.getElementById('nav-username');
-const balanceEl     = document.getElementById('balance-amount');
-const navUser       = document.getElementById('nav-user');
-const logoutBtn     = document.getElementById('logout-btn');
-const gamesList     = document.getElementById('games-list');
-const lobbyCount    = document.getElementById('lobby-count');
-const historyWrap   = document.getElementById('history-table-wrap');
+const loginOverlay   = document.getElementById('login-overlay');
+const navAvatarImg   = document.getElementById('nav-avatar-img');
+const navUsername    = document.getElementById('nav-username');
+const balanceEl      = document.getElementById('balance-amount');
+const navUser        = document.getElementById('nav-user');
+const logoutBtn      = document.getElementById('logout-btn');
+const gamesList      = document.getElementById('games-list');
+const lobbyCount     = document.getElementById('lobby-count');
+const historyWrap    = document.getElementById('history-table-wrap');
 const historySummary = document.getElementById('history-summary');
+
+const inventoryListEl  = document.getElementById('inventory-list');
+const inventoryEmptyEl = document.getElementById('inventory-empty');
+const requestsListEl   = document.getElementById('requests-list');
+const requestsEmptyEl  = document.getElementById('requests-empty');
 
 function fmt(n) { return Number(n).toLocaleString('pl-PL'); }
 function sideLabel(s) { return s === 'heads' ? 'ORZEŁ' : 'RESZKA'; }
@@ -28,6 +38,22 @@ function timeAgo(ts) {
     if (s < 60) return `${s}s temu`;
     if (s < 3600) return `${Math.floor(s/60)}min temu`;
     return `${Math.floor(s/3600)}h temu`;
+}
+
+function escapeHtml(str) {
+    return String(str || '').replace(/[&<>"']/g, (m) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[m]));
+}
+
+async function apiJson(url, opts) {
+    const res = await fetch(url, {
+        headers: { 'Content-Type': 'application/json' },
+        ...(opts || {})
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.message || 'Błąd API');
+    return data;
 }
 
 // ── SESJA ─────────────────────────────────────────────────────
@@ -54,11 +80,27 @@ socket.on('gameError', (msg) => alert(msg));
 window.showTab = function(tab) {
     document.getElementById('tab-lobby').style.display   = tab === 'lobby'   ? 'block' : 'none';
     document.getElementById('tab-history').style.display = tab === 'history' ? 'block' : 'none';
-    document.querySelectorAll('.nav-tab').forEach((el, i) => {
-        el.classList.toggle('active', (i===0 && tab==='lobby') || (i===1 && tab==='history'));
+    document.getElementById('tab-deposit').style.display = tab === 'deposit' ? 'block' : 'none';
+
+    document.querySelectorAll('.nav-tab').forEach((el) => {
+        const t = el.getAttribute('data-tab');
+        el.classList.toggle('active', t === tab);
     });
+
     if (tab === 'history') socket.emit('getHistory');
+    if (tab === 'deposit') refreshDepositTab();
 };
+
+async function refreshDepositTab() {
+    try {
+        await Promise.all([loadInventory(), loadRequests()]);
+        renderInventory();
+        renderRequests();
+    } catch (e) {
+        // jeśli user nie jest zalogowany, backend zwróci 401
+        console.warn(e.message);
+    }
+}
 
 // ── MODAL: STWÓRZ GRĘ ────────────────────────────────────────
 window.openCreateModal  = () => { document.getElementById('modal-bet').value = Math.min(50, balance); updateTotal(); document.getElementById('create-modal').style.display = 'flex'; };
@@ -320,9 +362,207 @@ socket.on('historyData', (records) => {
         </div>`;
 });
 
+// ── DEPOZYT / INVENTARZ ───────────────────────────────────────
+window.openDepositModal = () => {
+    document.getElementById('dep-search').value = '';
+    document.getElementById('dep-note').value = '';
+    document.getElementById('deposit-rows').innerHTML = '';
+    setDepositHint();
+    addDepositRow('');
+    document.getElementById('deposit-modal').style.display = 'flex';
+};
+window.closeDepositModal = () => { document.getElementById('deposit-modal').style.display = 'none'; };
+
+function setDepositHint() {
+    const hint = document.getElementById('deposit-hint');
+    hint.innerHTML = `
+      1) Zrób trade w PS99 i wyślij itemy do konta/bota.<br>
+      2) Tutaj wpisz co wysłałeś i kliknij <b>Zgłoś depozyt</b>.<br>
+      3) Admin potwierdzi i itemy pojawią się w Twoim inventarzu na stronie.`;
+}
+
+function addDepositRow(prefillName) {
+    const wrap = document.getElementById('deposit-rows');
+    const row = document.createElement('div');
+    row.className = 'dep-row';
+    row.innerHTML = `
+      <input class="dep-name" placeholder="Nazwa itemu" value="${escapeHtml(prefillName || '')}">
+      <input class="dep-qty" type="number" min="1" value="1">
+      <button class="dep-del" title="Usuń">✕</button>
+    `;
+    row.querySelector('.dep-del').addEventListener('click', () => row.remove());
+    wrap.appendChild(row);
+}
+
+window.addDepositRowFromSearch = () => {
+    const name = document.getElementById('dep-search').value.trim();
+    addDepositRow(name);
+    document.getElementById('dep-search').value = '';
+};
+
+window.submitDepositRequest = async () => {
+    try {
+        const rows = [...document.querySelectorAll('#deposit-rows .dep-row')];
+        const items = rows.map(r => ({
+            name: r.querySelector('.dep-name').value.trim(),
+            qty: parseInt(r.querySelector('.dep-qty').value || '1', 10) || 1
+        })).filter(x => x.name);
+        const note = document.getElementById('dep-note').value.trim();
+        if (!items.length) return alert('Dodaj przynajmniej 1 item.');
+        await apiJson('/api/deposit/request', { method: 'POST', body: JSON.stringify({ items, note }) });
+        closeDepositModal();
+        await refreshDepositTab();
+        alert('Zgłoszenie depozytu wysłane (pending).');
+    } catch (e) {
+        alert(e.message);
+    }
+};
+
+window.openWithdrawModal = async () => {
+    withdrawSelection = new Map();
+    try {
+        await loadInventory();
+        renderWithdrawPicker();
+        document.getElementById('wd-note').value = '';
+        document.getElementById('withdraw-modal').style.display = 'flex';
+    } catch (e) {
+        alert(e.message);
+    }
+};
+window.closeWithdrawModal = () => { document.getElementById('withdraw-modal').style.display = 'none'; };
+
+function renderWithdrawPicker() {
+    const box = document.getElementById('withdraw-items');
+    box.innerHTML = '';
+    if (!myInventory.length) {
+        box.innerHTML = `<div class="empty-mini" style="grid-column:1/-1">Brak itemów na stronie.</div>`;
+        return;
+    }
+    myInventory.forEach(it => {
+        const key = it.name.toLowerCase();
+        const card = document.createElement('div');
+        card.className = 'inv-item';
+        card.innerHTML = `
+          <div class="inv-name">${escapeHtml(it.name)}</div>
+          <div class="inv-qty">Masz: ${fmt(it.qty)}</div>
+          <div class="inv-actions">
+            <button class="inv-btn" data-act="minus">−</button>
+            <span class="inv-sel" data-sel>0</span>
+            <button class="inv-btn" data-act="plus">+</button>
+          </div>
+        `;
+        const selEl = card.querySelector('[data-sel]');
+        const updateSel = () => {
+            const v = withdrawSelection.get(key) || 0;
+            selEl.textContent = String(v);
+        };
+        card.querySelector('[data-act="minus"]').addEventListener('click', () => {
+            const cur = withdrawSelection.get(key) || 0;
+            if (cur <= 0) return;
+            const next = cur - 1;
+            if (next === 0) withdrawSelection.delete(key);
+            else withdrawSelection.set(key, next);
+            updateSel();
+        });
+        card.querySelector('[data-act="plus"]').addEventListener('click', () => {
+            const cur = withdrawSelection.get(key) || 0;
+            if (cur >= it.qty) return;
+            withdrawSelection.set(key, cur + 1);
+            updateSel();
+        });
+        updateSel();
+        box.appendChild(card);
+    });
+}
+
+window.submitWithdrawRequest = async () => {
+    try {
+        const note = document.getElementById('wd-note').value.trim();
+        const items = [];
+        withdrawSelection.forEach((qty, key) => {
+            if (qty > 0) {
+                const original = myInventory.find(x => x.name.toLowerCase() === key);
+                if (original) items.push({ name: original.name, qty });
+            }
+        });
+        if (!items.length) return alert('Wybierz itemy do wypłaty.');
+        await apiJson('/api/withdraw/request', { method: 'POST', body: JSON.stringify({ items, note }) });
+        closeWithdrawModal();
+        await refreshDepositTab();
+        alert('Zgłoszenie wypłaty wysłane (pending).');
+    } catch (e) {
+        alert(e.message);
+    }
+};
+
+async function loadInventory() {
+    const data = await apiJson('/api/inventory', { method: 'GET' });
+    myInventory = data.items || [];
+}
+
+async function loadRequests() {
+    const data = await apiJson('/api/requests', { method: 'GET' });
+    myRequests = data.requests || [];
+}
+
+function renderInventory() {
+    if (!inventoryListEl) return;
+    inventoryListEl.innerHTML = '';
+    const items = myInventory || [];
+    inventoryEmptyEl.style.display = items.length ? 'none' : 'block';
+    items.forEach(it => {
+        const el = document.createElement('div');
+        el.className = 'inv-item';
+        el.innerHTML = `
+          <div class="inv-name">${escapeHtml(it.name)}</div>
+          <div class="inv-qty">x ${fmt(it.qty)}</div>
+        `;
+        inventoryListEl.appendChild(el);
+    });
+}
+
+function statusBadge(r) {
+    const s = r.status;
+    if (s === 'pending') return `<span class="badge pending">PENDING</span>`;
+    if (s === 'approved') return `<span class="badge approved">APPROVED</span>`;
+    if (s === 'rejected') return `<span class="badge rejected">REJECTED</span>`;
+    if (s === 'sent') return `<span class="badge sent">SENT</span>`;
+    return `<span class="badge">${escapeHtml(s)}</span>`;
+}
+
+function typeLabel(t) {
+    return t === 'deposit' ? 'Deposit' : (t === 'withdraw' ? 'Withdraw' : t);
+}
+
+function renderRequests() {
+    if (!requestsListEl) return;
+    requestsListEl.innerHTML = '';
+    const reqs = myRequests || [];
+    requestsEmptyEl.style.display = reqs.length ? 'none' : 'block';
+
+    reqs.forEach(r => {
+        const items = (r.items || []).map(it => `${escapeHtml(it.name)} x${fmt(it.qty)}`).join(', ');
+        const el = document.createElement('div');
+        el.className = 'req-item';
+        el.innerHTML = `
+          <div class="req-top">
+            <div class="req-title">${typeLabel(r.type)} ${statusBadge(r)}</div>
+            <div class="req-time">${timeAgo(r.createdAt || Date.now())}</div>
+          </div>
+          <div class="req-body">${items || '—'}</div>
+          ${r.note ? `<div class="req-note">Notatka: ${escapeHtml(r.note)}</div>` : ''}
+          ${r.adminNote ? `<div class="req-note">Admin: ${escapeHtml(r.adminNote)}</div>` : ''}
+        `;
+        requestsListEl.appendChild(el);
+    });
+}
+
 // zamknij modale klikając tło
-['create-modal','view-modal','result-modal'].forEach(id => {
-    document.getElementById(id).addEventListener('click', function(e) {
+['create-modal','view-modal','result-modal','deposit-modal','withdraw-modal'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('click', function(e) {
         if (e.target === this) this.style.display = 'none';
     });
 });
+

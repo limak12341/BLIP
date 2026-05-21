@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BFLIP Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    .admin-wrap { max-width: 1000px; margin: 32px auto; padding: 0 20px; position: relative; z-index: 1; }
+    .admin-grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
+    .admin-toolbar { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom: 14px; }
+    .filters { display:flex; gap:8px; flex-wrap: wrap; }
+    .chip {
+      padding: 8px 12px; border-radius: 999px;
+      background: rgba(255,255,255,.05); border: 1px solid var(--border2);
+      color: var(--muted); cursor: pointer; font-weight: 700; font-size: .8rem;
+    }
+    .chip.active { color: var(--text); border-color: rgba(124,92,252,.4); background: rgba(124,92,252,.12); }
+    .admin-card { background: var(--surf); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
+    .admin-title { font-family: 'Orbitron', monospace; font-weight: 900; letter-spacing: .5px; }
+    .req-actions { display:flex; gap:10px; margin-top: 10px; flex-wrap: wrap; }
+    .btn-ok, .btn-no {
+      padding: 10px 14px; border-radius: 10px; cursor: pointer; font-weight: 900; border: 1px solid transparent;
+    }
+    .btn-ok { background: rgba(46,213,115,.12); border-color: rgba(46,213,115,.25); color: var(--green); }
+    .btn-ok:hover { background: rgba(46,213,115,.18); }
+    .btn-no { background: rgba(232,65,24,.12); border-color: rgba(232,65,24,.25); color: var(--red); }
+    .btn-no:hover { background: rgba(232,65,24,.18); }
+    .admin-note { width: 320px; max-width: 100%; }
+    .login-mini { max-width: 520px; margin: 64px auto; position: relative; z-index: 1; }
+  </style>
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="logo">B<span>FLIP</span> <span style="font-size:.75rem;color:var(--muted);font-family:Inter;font-weight:700">ADMIN</span></div>
+  <div class="nav-tabs"></div>
+  <div class="nav-right">
+    <button class="logout-btn" id="btn-logout" style="display:none">Wyloguj</button>
+  </div>
+</nav>
+
+<div class="admin-wrap">
+  <div id="login-box" class="admin-card login-mini">
+    <div class="admin-title" style="margin-bottom:10px">Logowanie admin</div>
+    <div class="login-note" style="margin-bottom:10px">Wpisz token admina (ENV: <b>ADMIN_TOKEN</b>)</div>
+    <input class="login-input" id="token" placeholder="ADMIN_TOKEN">
+    <button class="flip-btn" id="btn-login">Zaloguj</button>
+    <div class="login-error" id="login-err"></div>
+  </div>
+
+  <div id="admin-panel" style="display:none">
+    <div class="admin-toolbar">
+      <div class="admin-title">Zgłoszenia</div>
+      <div class="filters">
+        <button class="chip active" data-status="" data-type="">Wszystkie</button>
+        <button class="chip" data-status="pending" data-type="">Pending</button>
+        <button class="chip" data-status="" data-type="deposit">Deposit</button>
+        <button class="chip" data-status="" data-type="withdraw">Withdraw</button>
+      </div>
+    </div>
+
+    <div class="admin-grid" id="list"></div>
+    <div class="empty-mini" id="empty" style="display:none">Brak zgłoszeń do pokazania.</div>
+  </div>
+</div>
+
+<script>
+  function escapeHtml(str) {
+    return String(str || '').replace(/[&<>"']/g, (m) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[m]));
+  }
+  function fmt(n) { return Number(n).toLocaleString('pl-PL'); }
+  function timeAgo(ts) {
+    const s = Math.floor((Date.now() - ts) / 1000);
+    if (s < 60) return s + 's temu';
+    if (s < 3600) return Math.floor(s/60) + 'min temu';
+    return Math.floor(s/3600) + 'h temu';
+  }
+  function badge(status) {
+    if (status === 'pending') return '<span class="badge pending">PENDING</span>';
+    if (status === 'approved') return '<span class="badge approved">APPROVED</span>';
+    if (status === 'rejected') return '<span class="badge rejected">REJECTED</span>';
+    if (status === 'sent') return '<span class="badge sent">SENT</span>';
+    return '<span class="badge">' + escapeHtml(status) + '</span>';
+  }
+  async function apiJson(url, opts) {
+    const res = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...(opts||{}) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.message || 'Błąd API');
+    return data;
+  }
+
+  const loginBox = document.getElementById('login-box');
+  const panel = document.getElementById('admin-panel');
+  const listEl = document.getElementById('list');
+  const emptyEl = document.getElementById('empty');
+  const errEl = document.getElementById('login-err');
+  const btnLogout = document.getElementById('btn-logout');
+
+  let filterStatus = '';
+  let filterType = '';
+
+  async function refresh() {
+    const qs = new URLSearchParams();
+    if (filterStatus) qs.set('status', filterStatus);
+    if (filterType) qs.set('type', filterType);
+    const data = await apiJson('/api/admin/requests?' + qs.toString());
+    const reqs = data.requests || [];
+    listEl.innerHTML = '';
+    emptyEl.style.display = reqs.length ? 'none' : 'block';
+
+    reqs.forEach(r => {
+      const items = (r.items || []).map(it => escapeHtml(it.name) + ' x' + fmt(it.qty)).join(', ');
+      const card = document.createElement('div');
+      card.className = 'admin-card';
+      card.innerHTML = `
+        <div style="display:flex;justify-content:space-between;gap:10px;align-items:center">
+          <div style="font-weight:900">
+            ${escapeHtml(r.type || '—')} ${badge(r.status)}
+          </div>
+          <div class="login-note">${timeAgo(r.createdAt || Date.now())}</div>
+        </div>
+        <div style="margin-top:8px" class="login-note">Użytkownik: <b>${escapeHtml(r.username || r.userId)}</b> (${escapeHtml(r.userId)})</div>
+        <div style="margin-top:10px">${items || '—'}</div>
+        ${r.note ? `<div class="login-note" style="margin-top:8px">Notatka: ${escapeHtml(r.note)}</div>` : ``}
+        ${r.adminNote ? `<div class="login-note" style="margin-top:8px">Admin: ${escapeHtml(r.adminNote)}</div>` : ``}
+        <div class="req-actions">
+          <input class="login-input admin-note" placeholder="Notatka admina (opcjonalnie)" value="">
+          <button class="btn-ok">Approve</button>
+          <button class="btn-no">Reject</button>
+        </div>
+      `;
+      const noteInput = card.querySelector('.admin-note');
+      const btnOk = card.querySelector('.btn-ok');
+      const btnNo = card.querySelector('.btn-no');
+
+      btnOk.disabled = r.status !== 'pending';
+      btnNo.disabled = r.status !== 'pending';
+
+      btnOk.addEventListener('click', async () => {
+        try {
+          await apiJson('/api/admin/requests/' + encodeURIComponent(r._id) + '/approve', {
+            method: 'POST',
+            body: JSON.stringify({ adminNote: noteInput.value.trim() })
+          });
+          await refresh();
+        } catch (e) { alert(e.message); }
+      });
+      btnNo.addEventListener('click', async () => {
+        try {
+          await apiJson('/api/admin/requests/' + encodeURIComponent(r._id) + '/reject', {
+            method: 'POST',
+            body: JSON.stringify({ adminNote: noteInput.value.trim() })
+          });
+          await refresh();
+        } catch (e) { alert(e.message); }
+      });
+
+      listEl.appendChild(card);
+    });
+  }
+
+  document.getElementById('btn-login').addEventListener('click', async () => {
+    errEl.textContent = '';
+    try {
+      const token = document.getElementById('token').value.trim();
+      await apiJson('/admin/login', { method: 'POST', body: JSON.stringify({ token }) });
+      loginBox.style.display = 'none';
+      panel.style.display = 'block';
+      btnLogout.style.display = 'inline-block';
+      await refresh();
+    } catch (e) {
+      errEl.textContent = e.message;
+    }
+  });
+
+  btnLogout.addEventListener('click', async () => {
+    try {
+      await apiJson('/admin/logout', { method: 'POST', body: JSON.stringify({}) });
+    } catch {}
+    location.reload();
+  });
+
+  document.querySelectorAll('.chip').forEach(ch => {
+    ch.addEventListener('click', async () => {
+      document.querySelectorAll('.chip').forEach(x => x.classList.remove('active'));
+      ch.classList.add('active');
+      filterStatus = ch.getAttribute('data-status') || '';
+      filterType = ch.getAttribute('data-type') || '';
+      try { await refresh(); } catch (e) { alert(e.message); }
+    });
+  });
+</script>
+
+</body>
+</html>
+

@@ -8,12 +8,16 @@ const Datastore  = require('@seald-io/nedb');
 const { Server } = require('socket.io');
 
 // ── KONFIGURACJA ─────────────────────────────────────────────
-const ROBLOX_CLIENT_ID     = 'TWÓJ_CLIENT_ID';
-const ROBLOX_CLIENT_SECRET = 'TWÓJ_CLIENT_SECRET';
-const REDIRECT_URI         = 'http://localhost:5000/auth/callback';
+const ROBLOX_CLIENT_ID     = process.env.ROBLOX_CLIENT_ID || 'TWÓJ_CLIENT_ID';
+const ROBLOX_CLIENT_SECRET = process.env.ROBLOX_CLIENT_SECRET || 'TWÓJ_CLIENT_SECRET';
+const REDIRECT_URI         = process.env.REDIRECT_URI || 'http://localhost:5000/auth/callback';
 const PORT                 = process.env.PORT || 5000;
 const SESSION_SECRET       = process.env.SESSION_SECRET || 'zmien-na-losowy-ciag-znakow-xyz987';
 const IS_PRODUCTION        = process.env.NODE_ENV === 'production';
+
+// Admin (do panelu /admin) – ustaw w env na Render/GitHub itp.
+// Przykład: ADMIN_TOKEN=jakis-losowy-ciag-32-znaki
+const ADMIN_TOKEN          = process.env.ADMIN_TOKEN || 'zmien-mnie-admin-token';
 
 // ── INICJALIZACJA ─────────────────────────────────────────────
 const app    = express();
@@ -26,8 +30,15 @@ const db      = new Datastore({ filename: path.join(__dirname, 'baza_graczy.db')
 const gamesDb = new Datastore({ filename: path.join(__dirname, 'baza_historii.db'), autoload: true });
 const lobbyDb = new Datastore({ filename: path.join(__dirname, 'baza_lobby.db'),   autoload: true });
 
-// Indeks dla szybkiego wyszukiwania historii gracza
+// Depozyty / wypłaty / inventarz na stronie
+const inventoryDb = new Datastore({ filename: path.join(__dirname, 'baza_inventory.db'), autoload: true });
+const requestsDb  = new Datastore({ filename: path.join(__dirname, 'baza_requests.db'),  autoload: true });
+
+// Indeksy
 gamesDb.ensureIndex({ fieldName: 'players', sparse: true });
+requestsDb.ensureIndex({ fieldName: 'userId', sparse: true });
+requestsDb.ensureIndex({ fieldName: 'status', sparse: true });
+requestsDb.ensureIndex({ fieldName: 'type', sparse: true });
 
 const activeGames = new Map();
 let gameCounter = 1;
@@ -35,6 +46,24 @@ const tempCodes = new Map();
 
 function normalizeUsername(raw) {
     return String(raw || '').trim();
+}
+
+function safeStr(v) {
+    return String(v || '').trim();
+}
+
+function newId(prefix) {
+    return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function sanitizeItems(items) {
+    if (!Array.isArray(items)) return [];
+    return items
+        .map(it => ({
+            name: safeStr(it?.name).slice(0, 80),
+            qty: Math.max(1, Math.min(9999, parseInt(it?.qty || 1, 10) || 1))
+        }))
+        .filter(it => it.name.length > 0);
 }
 
 async function fetchRobloxUserByUsername(username) {
@@ -62,63 +91,63 @@ const sessionMiddleware = session({
 app.use(sessionMiddleware);
 app.use(express.json());
 app.use(express.static(path.join(__dirname)));
-
-// ── WERYFIKACJA BIO ───────────────────────────────────────────
-app.post('/verify-start', (req, res) => {
-    const username = normalizeUsername(req.body.username);
-    if (!username) return res.status(400).json({ message: 'Podaj nick!' });
-
-    const code = 'blox' + Math.random().toString(36).substring(2, 6).toUpperCase();
-    tempCodes.set(username.toLowerCase(), { code, displayName: username });
-    res.json({ code });
-});
-
-app.post('/verify-check', async (req, res) => {
-    const username = normalizeUsername(req.body.username);
-    const pending = tempCodes.get(username.toLowerCase());
-
-    if (!pending) {
-        return res.status(400).json({ message: 'Najpierw wygeneruj kod!' });
-    }
-
-    try {
-        const userEntry = await fetchRobloxUserByUsername(username);
-        if (!userEntry) {
-            return res.status(404).json({ message: 'Nie znaleziono gracza o tym nicku!' });
-        }
-
-        const userId = userEntry.id;
-        const profileRes = await axios.get(`https://users.roblox.com/v1/users/${userId}`);
-        const bio = profileRes.data.description || '';
-
-        if (!bio.includes(pending.code)) {
-            return res.json({
-                success: false,
-                message: 'Kod nie znaleziony w Bio! Upewnij się, że zapisałeś profil na Robloxie.'
-            });
-        }
-
-        const avatarRes = await axios.get(
-            `https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${userId}&size=150x150&format=Png`
-        );
-        const avatarUrl = avatarRes.data?.data?.[0]?.imageUrl || '';
-
-        const displayName = pending.displayName || userEntry.name || username;
-
-        req.session.robloxId = userId.toString();
-        req.session.username = displayName;
-        req.session.avatarUrl = avatarUrl;
-        tempCodes.delete(username.toLowerCase());
-
-        getOrCreateUser(req.session.robloxId, displayName, avatarUrl, () => {
-            res.json({ success: true });
-        });
-    } catch (e) {
-        console.error('verify-check:', e.message);
-        res.status(500).json({ message: 'Błąd serwera. Spróbuj za chwilę.' });
-    }
-});
 io.engine.use(sessionMiddleware);
+
+function requireLogin(req, res, next) {
+    if (!req.session?.robloxId) return res.status(401).json({ message: 'Nie jesteś zalogowany.' });
+    next();
+}
+
+function requireAdmin(req, res, next) {
+    if (!req.session?.isAdmin) return res.status(401).json({ message: 'Brak uprawnień admin.' });
+    next();
+}
+
+// ── INVENTARZ (na stronie) ────────────────────────────────────
+function getInventory(userId, callback) {
+    inventoryDb.findOne({ _id: userId }, (err, doc) => {
+        if (doc?.items) return callback(doc.items);
+        const fresh = { _id: userId, items: [] };
+        inventoryDb.insert(fresh, () => callback([]));
+    });
+}
+
+function addToInventory(userId, items, callback) {
+    getInventory(userId, (cur) => {
+        const map = new Map();
+        cur.forEach(it => map.set(it.name.toLowerCase(), { name: it.name, qty: it.qty }));
+        items.forEach(it => {
+            const key = it.name.toLowerCase();
+            const prev = map.get(key);
+            if (prev) prev.qty += it.qty;
+            else map.set(key, { name: it.name, qty: it.qty });
+        });
+        const merged = [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+        inventoryDb.update({ _id: userId }, { $set: { items: merged } }, { upsert: true }, () => callback(merged));
+    });
+}
+
+function removeFromInventory(userId, items, callback) {
+    getInventory(userId, (cur) => {
+        const map = new Map();
+        cur.forEach(it => map.set(it.name.toLowerCase(), { name: it.name, qty: it.qty }));
+        // walidacja: czy wystarczy
+        for (const it of items) {
+            const key = it.name.toLowerCase();
+            const prev = map.get(key);
+            if (!prev || prev.qty < it.qty) return callback({ ok: false, message: `Brak itemu lub za mało sztuk: ${it.name}` });
+        }
+        // odejmij
+        items.forEach(it => {
+            const key = it.name.toLowerCase();
+            const prev = map.get(key);
+            prev.qty -= it.qty;
+            if (prev.qty <= 0) map.delete(key);
+        });
+        const merged = [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+        inventoryDb.update({ _id: userId }, { $set: { items: merged } }, { upsert: true }, () => callback({ ok: true, items: merged }));
+    });
+}
 
 // ── FUNKCJE BAZOWE ───────────────────────────────────────────
 function getOrCreateUser(robloxId, username, avatarUrl, callback) {
@@ -127,7 +156,7 @@ function getOrCreateUser(robloxId, username, avatarUrl, callback) {
             db.update({ _id: robloxId }, { $set: { username, avatarUrl } }, {}, () => callback({ ...doc, username, avatarUrl }));
         } else {
             const newUser = { _id: robloxId, username, avatarUrl, balance: 1000 };
-            db.insert(newUser, (err, inserted) => callback(inserted));
+            db.insert(newUser, (err2, inserted) => callback(inserted));
         }
     });
 }
@@ -192,9 +221,79 @@ function getHistory(robloxId, callback) {
     gamesDb.find({ players: robloxId }).sort({ timestamp: -1 }).limit(30).exec((err, docs) => callback(err ? [] : docs));
 }
 
-// ── ROUTES & SOCKETS ──────────────────────────────────────────
+function broadcastGames() {
+    const list = [...activeGames.values()].map(g => ({
+        id: g.id, bet: g.bet, status: g.status, createdAt: g.createdAt,
+        creator: { robloxId: g.creator.robloxId, username: g.creator.username, avatarUrl: g.creator.avatarUrl, side: g.creator.side }
+    }));
+    io.emit('gamesList', list);
+}
+
+// ── WERYFIKACJA BIO ───────────────────────────────────────────
+app.post('/verify-start', (req, res) => {
+    const username = normalizeUsername(req.body.username);
+    if (!username) return res.status(400).json({ message: 'Podaj nick!' });
+
+    const code = 'blox' + Math.random().toString(36).substring(2, 6).toUpperCase();
+    tempCodes.set(username.toLowerCase(), { code, displayName: username });
+    res.json({ code });
+});
+
+app.post('/verify-check', async (req, res) => {
+    const username = normalizeUsername(req.body.username);
+    const pending = tempCodes.get(username.toLowerCase());
+
+    if (!pending) {
+        return res.status(400).json({ message: 'Najpierw wygeneruj kod!' });
+    }
+
+    try {
+        const userEntry = await fetchRobloxUserByUsername(username);
+        if (!userEntry) {
+            return res.status(404).json({ message: 'Nie znaleziono gracza o tym nicku!' });
+        }
+
+        const userId = userEntry.id;
+        const profileRes = await axios.get(`https://users.roblox.com/v1/users/${userId}`);
+        const bio = profileRes.data.description || '';
+
+        if (!bio.includes(pending.code)) {
+            return res.json({
+                success: false,
+                message: 'Kod nie znaleziony w Bio! Upewnij się, że zapisałeś profil na Robloxie.'
+            });
+        }
+
+        const avatarRes = await axios.get(
+            `https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${userId}&size=150x150&format=Png`
+        );
+        const avatarUrl = avatarRes.data?.data?.[0]?.imageUrl || '';
+
+        const displayName = pending.displayName || userEntry.name || username;
+
+        req.session.robloxId = userId.toString();
+        req.session.username = displayName;
+        req.session.avatarUrl = avatarUrl;
+        tempCodes.delete(username.toLowerCase());
+
+        getOrCreateUser(req.session.robloxId, displayName, avatarUrl, () => {
+            res.json({ success: true });
+        });
+    } catch (e) {
+        console.error('verify-check:', e.message);
+        res.status(500).json({ message: 'Błąd serwera. Spróbuj za chwilę.' });
+    }
+});
+
+// ── OAUTH ROBLOX (opcjonalnie) ─────────────────────────────────
 app.get('/auth/roblox', (req, res) => {
-    const params = new URLSearchParams({ client_id: ROBLOX_CLIENT_ID, redirect_uri: REDIRECT_URI, response_type: 'code', scope: 'openid profile', state: 'bloxyflip_state' });
+    const params = new URLSearchParams({
+        client_id: ROBLOX_CLIENT_ID,
+        redirect_uri: REDIRECT_URI,
+        response_type: 'code',
+        scope: 'openid profile',
+        state: 'bloxyflip_state'
+    });
     res.redirect(`https://apis.roblox.com/oauth/v1/authorize?${params}`);
 });
 
@@ -202,23 +301,182 @@ app.get('/auth/callback', async (req, res) => {
     const { code, error } = req.query;
     if (error || !code) return res.redirect('/?error=auth_failed');
     try {
-        const tokenRes = await axios.post('https://apis.roblox.com/oauth/v1/token', new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: REDIRECT_URI, client_id: ROBLOX_CLIENT_ID, client_secret: ROBLOX_CLIENT_SECRET }), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
-        const userRes = await axios.get('https://apis.roblox.com/oauth/v1/userinfo', { headers: { Authorization: `Bearer ${tokenRes.data.access_token}` } });
+        const tokenRes = await axios.post(
+            'https://apis.roblox.com/oauth/v1/token',
+            new URLSearchParams({
+                grant_type: 'authorization_code',
+                code,
+                redirect_uri: REDIRECT_URI,
+                client_id: ROBLOX_CLIENT_ID,
+                client_secret: ROBLOX_CLIENT_SECRET
+            }),
+            { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+        );
+        const userRes = await axios.get('https://apis.roblox.com/oauth/v1/userinfo', {
+            headers: { Authorization: `Bearer ${tokenRes.data.access_token}` }
+        });
         const { sub: robloxId, name: username, picture: avatarUrl } = userRes.data;
-        req.session.robloxId = robloxId;
+        req.session.robloxId = String(robloxId);
         req.session.username = username;
         req.session.avatarUrl = avatarUrl || '';
-        res.redirect('/');
-    } catch (err) { res.redirect('/?error=token_failed'); }
+        getOrCreateUser(req.session.robloxId, username, req.session.avatarUrl, () => {
+            res.redirect('/');
+        });
+    } catch (err) {
+        res.redirect('/?error=token_failed');
+    }
 });
 
 app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/'); });
 
-function broadcastGames() {
-    const list = [...activeGames.values()].map(g => ({ id: g.id, bet: g.bet, status: g.status, createdAt: g.createdAt, creator: { robloxId: g.creator.robloxId, username: g.creator.username, avatarUrl: g.creator.avatarUrl, side: g.creator.side } }));
-    io.emit('gamesList', list);
-}
+// ── API: INVENTARZ / DEPOZYT / WYPŁATA ─────────────────────────
+app.get('/api/inventory', requireLogin, (req, res) => {
+    getInventory(req.session.robloxId, (items) => res.json({ items }));
+});
 
+app.get('/api/requests', requireLogin, (req, res) => {
+    requestsDb.find({ userId: req.session.robloxId }).sort({ createdAt: -1 }).limit(50).exec((err, docs) => {
+        res.json({ requests: err ? [] : (docs || []) });
+    });
+});
+
+// Zgłoszenie depozytu (użytkownik deklaruje co wysłał trade'em)
+app.post('/api/deposit/request', requireLogin, (req, res) => {
+    const items = sanitizeItems(req.body.items);
+    const note = safeStr(req.body.note).slice(0, 300);
+    if (!items.length) return res.status(400).json({ message: 'Dodaj przynajmniej 1 item.' });
+
+    const doc = {
+        _id: newId('dep'),
+        type: 'deposit',
+        status: 'pending',
+        userId: req.session.robloxId,
+        username: req.session.username || '',
+        items,
+        note,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+    };
+    requestsDb.insert(doc, (err) => {
+        if (err) return res.status(500).json({ message: 'Błąd zapisu zgłoszenia.' });
+        res.json({ ok: true, request: doc });
+    });
+});
+
+// Zgłoszenie wypłaty (strona odejmie itemy dopiero po akceptacji admina)
+app.post('/api/withdraw/request', requireLogin, (req, res) => {
+    const items = sanitizeItems(req.body.items);
+    const note = safeStr(req.body.note).slice(0, 300);
+    if (!items.length) return res.status(400).json({ message: 'Dodaj przynajmniej 1 item.' });
+
+    // waliduj, czy user ma te itemy na stronie
+    removeFromInventory(req.session.robloxId, items, (check) => {
+        if (!check.ok) return res.status(400).json({ message: check.message });
+        // cofamy zmianę (realnie odejmiemy dopiero po approve admina)
+        addToInventory(req.session.robloxId, items, () => {
+            const doc = {
+                _id: newId('wd'),
+                type: 'withdraw',
+                status: 'pending',
+                userId: req.session.robloxId,
+                username: req.session.username || '',
+                items,
+                note,
+                createdAt: Date.now(),
+                updatedAt: Date.now()
+            };
+            requestsDb.insert(doc, (err) => {
+                if (err) return res.status(500).json({ message: 'Błąd zapisu zgłoszenia.' });
+                res.json({ ok: true, request: doc });
+            });
+        });
+    });
+});
+
+// ── ADMIN ────────────────────────────────────────────────────
+app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'admin.html')));
+
+app.post('/admin/login', (req, res) => {
+    const token = safeStr(req.body.token);
+    if (!token) return res.status(400).json({ message: 'Podaj token.' });
+    if (token !== ADMIN_TOKEN) return res.status(401).json({ message: 'Zły token.' });
+    req.session.isAdmin = true;
+    res.json({ ok: true });
+});
+
+app.post('/admin/logout', (req, res) => {
+    req.session.isAdmin = false;
+    res.json({ ok: true });
+});
+
+app.get('/api/admin/requests', requireAdmin, (req, res) => {
+    const status = safeStr(req.query.status);
+    const type = safeStr(req.query.type);
+    const q = {};
+    if (status) q.status = status;
+    if (type) q.type = type;
+    requestsDb.find(q).sort({ createdAt: -1 }).limit(200).exec((err, docs) => {
+        res.json({ requests: err ? [] : (docs || []) });
+    });
+});
+
+app.post('/api/admin/requests/:id/approve', requireAdmin, (req, res) => {
+    const id = safeStr(req.params.id);
+    const adminNote = safeStr(req.body.adminNote).slice(0, 300);
+    requestsDb.findOne({ _id: id }, (err, doc) => {
+        if (!doc) return res.status(404).json({ message: 'Nie znaleziono zgłoszenia.' });
+        if (doc.status !== 'pending') return res.status(400).json({ message: 'To zgłoszenie nie jest już pending.' });
+
+        const items = sanitizeItems(doc.items);
+        if (!items.length) return res.status(400).json({ message: 'Brak itemów w zgłoszeniu.' });
+
+        if (doc.type === 'deposit') {
+            addToInventory(doc.userId, items, () => {
+                requestsDb.update(
+                    { _id: id },
+                    { $set: { status: 'approved', adminNote, updatedAt: Date.now() } },
+                    {},
+                    () => res.json({ ok: true })
+                );
+            });
+            return;
+        }
+
+        if (doc.type === 'withdraw') {
+            // przy wypłacie odejmujemy itemy dopiero teraz
+            removeFromInventory(doc.userId, items, (result) => {
+                if (!result.ok) return res.status(400).json({ message: result.message });
+                requestsDb.update(
+                    { _id: id },
+                    { $set: { status: 'sent', adminNote, updatedAt: Date.now() } },
+                    {},
+                    () => res.json({ ok: true })
+                );
+            });
+            return;
+        }
+
+        res.status(400).json({ message: 'Nieznany typ.' });
+    });
+});
+
+app.post('/api/admin/requests/:id/reject', requireAdmin, (req, res) => {
+    const id = safeStr(req.params.id);
+    const adminNote = safeStr(req.body.adminNote).slice(0, 300);
+    requestsDb.findOne({ _id: id }, (err, doc) => {
+        if (!doc) return res.status(404).json({ message: 'Nie znaleziono zgłoszenia.' });
+        if (doc.status !== 'pending') return res.status(400).json({ message: 'To zgłoszenie nie jest już pending.' });
+
+        requestsDb.update(
+            { _id: id },
+            { $set: { status: 'rejected', adminNote, updatedAt: Date.now() } },
+            {},
+            () => res.json({ ok: true })
+        );
+    });
+});
+
+// ── SOCKETS (coinflip) ────────────────────────────────────────
 io.on('connection', (socket) => {
     const sess = socket.request.session;
     socket.on('checkSession', () => {
@@ -245,7 +503,14 @@ io.on('connection', (socket) => {
             updateBalance(sess.robloxId, user.balance - bet, () => {
                 socket.emit('balanceUpdate', user.balance - bet);
                 const gameId = `G${gameCounter++}`;
-                const game = { id: gameId, bet, status: 'waiting', createdAt: Date.now(), creator: { robloxId: sess.robloxId, username: sess.username, avatarUrl: sess.avatarUrl, side, socketId: socket.id }, joiner: null };
+                const game = {
+                    id: gameId,
+                    bet,
+                    status: 'waiting',
+                    createdAt: Date.now(),
+                    creator: { robloxId: sess.robloxId, username: sess.username, avatarUrl: sess.avatarUrl, side, socketId: socket.id },
+                    joiner: null
+                };
                 activeGames.set(gameId, game);
                 saveLobbyGame(game);
                 socket.emit('gameCreated', { gameId });
@@ -307,7 +572,7 @@ io.on('connection', (socket) => {
                     const creatorWon = game.creator.side === winningSide;
                     const prize = game.bet * 2;
                     const winnerId = creatorWon ? game.creator.robloxId : game.joiner.robloxId;
-                    db.findOne({ _id: winnerId }, (err, doc) => {
+                    db.findOne({ _id: winnerId }, (err2, doc) => {
                         if (doc) {
                             const newBal = doc.balance + prize;
                             updateBalance(winnerId, newBal, () => {
@@ -365,5 +630,6 @@ server.listen(PORT, '0.0.0.0', () => {
     } else {
         console.log(`   (nie wykryto adresu LAN — sprawdź ipconfig)`);
     }
-    console.log(`\n   Internet (znajomi z innej sieci): użyj ngrok — patrz instrukcja w czacie.\n`);
+    console.log(`\n🔐 Admin panel:  http://localhost:${PORT}/admin  (token z env: ADMIN_TOKEN)\n`);
 });
+
