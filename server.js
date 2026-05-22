@@ -18,6 +18,8 @@ const IS_PRODUCTION        = process.env.NODE_ENV === 'production';
 // Admin (do panelu /admin) – ustaw w env na Render/GitHub itp.
 // Przykład: ADMIN_TOKEN=jakis-losowy-ciag-32-znaki
 const ADMIN_TOKEN          = process.env.ADMIN_TOKEN || 'zmien-mnie-admin-token';
+// Bot secret — ten sam co w bot.js / .env
+const BOT_SECRET           = process.env.BOT_SECRET  || 'zmien-mnie-bot-secret-123';
 
 // ── INICJALIZACJA ─────────────────────────────────────────────
 const app    = express();
@@ -100,6 +102,12 @@ function requireLogin(req, res, next) {
 
 function requireAdmin(req, res, next) {
     if (!req.session?.isAdmin) return res.status(401).json({ message: 'Brak uprawnień admin.' });
+    next();
+}
+
+function requireBot(req, res, next) {
+    const secret = req.headers['x-bot-secret'];
+    if (!secret || secret !== BOT_SECRET) return res.status(401).json({ message: 'Brak dostępu bota.' });
     next();
 }
 
@@ -351,9 +359,11 @@ app.post('/api/deposit/request', requireLogin, (req, res) => {
         type: 'deposit',
         status: 'pending',
         userId: req.session.robloxId,
+        robloxUserId: req.session.robloxId,   // dla bota (wiadomości Roblox)
         username: req.session.username || '',
         items,
         note,
+        totalValue: 0,      // wypełni bot po wycenie RAP
         createdAt: Date.now(),
         updatedAt: Date.now()
     };
@@ -389,6 +399,180 @@ app.post('/api/withdraw/request', requireLogin, (req, res) => {
                 if (err) return res.status(500).json({ message: 'Błąd zapisu zgłoszenia.' });
                 res.json({ ok: true, request: doc });
             });
+        });
+    });
+});
+
+// ── API: PET DATABASE (BigGames API) ────────────────────────────
+// Cache dla petów i RAP
+let _petsCache = [];
+let _petsAt = 0;
+let _rapCache = {};
+let _rapAt = 0;
+const CACHE_MS = 5 * 60_000; // 5 min
+
+async function getRap() {
+    if (Date.now() - _rapAt < CACHE_MS) return _rapCache;
+    try {
+        const res = await axios.get('https://ps99.biggamesapi.io/api/rap', { timeout: 10000 });
+        const data = res.data?.data || [];
+        _rapCache = {};
+        _rapAt = Date.now();
+        data.forEach(it => {
+            if (it?.configData?.id) _rapCache[it.configData.id] = it.value || 0;
+            // pt=1 = golden, pt=2 = rainbow — dodajemy suffix dla odmian
+            if (it?.configData?.pt === 1) _rapCache[it.configData.id + ' [Golden]'] = it.value || 0;
+            if (it?.configData?.pt === 2) _rapCache[it.configData.id + ' [Rainbow]'] = it.value || 0;
+        });
+        console.log(`[RAP] Pobrano ${Object.keys(_rapCache).length} wycen z BigGames`);
+    } catch (e) {
+        console.warn('[RAP] Błąd:', e.message);
+    }
+    return _rapCache;
+}
+
+async function getPetsCollection() {
+    if (Date.now() - _petsAt < CACHE_MS && _petsCache.length) return _petsCache;
+    try {
+        const res = await axios.get('https://ps99.biggamesapi.io/api/collection/Pets', { timeout: 15000 });
+        const data = res.data?.data || [];
+        _petsCache = data;
+        _petsAt = Date.now();
+        console.log(`[PETS] Pobrano ${data.length} petów z BigGames`);
+    } catch (e) {
+        console.warn('[PETS] Błąd:', e.message);
+    }
+    return _petsCache;
+}
+
+function rapLookup(rap, name) {
+    if (!name) return 0;
+    const id = name.replace(/\s+/g, '');
+    return rap[id] || rap[name] || 0;
+}
+
+// Endpoint: wyszukiwarka petów (dla frontendu)
+app.get('/api/pets/search', async (req, res) => {
+    const q = safeStr(req.query.q).toLowerCase();
+    const category = safeStr(req.query.category).toLowerCase();
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 20));
+    
+    const [pets, rap] = await Promise.all([getPetsCollection(), getRap()]);
+    
+    let results = [];
+    const seen = new Set();
+    
+    for (const pet of pets) {
+        const name = pet?.configData?.name || pet?.configName || '';
+        if (!name) continue;
+        
+        // Filtruj po kategorii
+        if (category && (pet.category || '').toLowerCase() !== category) continue;
+        
+        // Filtruj po nazwie
+        if (q && !name.toLowerCase().includes(q)) continue;
+        
+        const key = name.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        
+        const rapValue = rapLookup(rap, name);
+        
+        results.push({
+            name,
+            category: pet.category || 'Unknown',
+            rap: rapValue,
+            huge: !!pet.configData?.huge,
+            thumbnail: pet.configData?.thumbnail || '',
+        });
+    }
+    
+    // Sortuj: najpierw ogony, potem po RAP malejąco
+    results.sort((a, b) => {
+        const aCat = a.category === 'Titanic' ? 0 : a.category === 'Gargantuan' ? 1 : a.category === 'Huge' ? 2 : 3;
+        const bCat = b.category === 'Titanic' ? 0 : b.category === 'Gargantuan' ? 1 : b.category === 'Huge' ? 2 : 3;
+        if (aCat !== bCat) return aCat - bCat;
+        return (b.rap || 0) - (a.rap || 0);
+    });
+    
+    const total = results.length;
+    const start = (page - 1) * limit;
+    results = results.slice(start, start + limit);
+    
+    res.json({
+        results,
+        total,
+        page,
+        pages: Math.ceil(total / limit),
+    });
+});
+
+// Endpoint: kategorie do filtrowania
+app.get('/api/pets/categories', async (req, res) => {
+    const pets = await getPetsCollection();
+    const cats = new Set(pets.map(p => p.category).filter(Boolean));
+    res.json({ categories: [...cats].sort() });
+});
+
+// Endpoint dla admina/frontu — wycena pojedynczego itemu
+app.get('/api/item-value', async (req, res) => {
+    const name = safeStr(req.query.name);
+    if (!name) return res.status(400).json({ message: 'Podaj nazwę itemu.' });
+    const rap = await getRap();
+    const value = rapLookup(rap, name);
+    res.json({ name, value, source: 'BigGames RAP' });
+});
+
+// ── API: BOT ──────────────────────────────────────────────────
+// Bot pobiera pending depozyty do wyceny
+app.get('/api/bot/pending-deposits', requireBot, (req, res) => {
+    requestsDb.find({ type: 'deposit', status: 'pending' })
+        .sort({ createdAt: 1 })
+        .limit(50)
+        .exec((err, docs) => {
+            res.json({ requests: err ? [] : (docs || []) });
+        });
+});
+
+// Bot aktualizuje request (dodaje wycenę RAP lub odrzuca)
+app.post('/api/bot/update-deposit', requireBot, (req, res) => {
+    const id         = safeStr(req.body.requestId);
+    const status     = safeStr(req.body.status);    // 'valued' | 'rejected'
+    const adminNote  = safeStr(req.body.adminNote || '').slice(0, 500);
+    const totalValue = parseInt(req.body.totalValue) || 0;
+
+    if (!id) return res.status(400).json({ message: 'Brak requestId.' });
+    if (!['valued', 'rejected'].includes(status)) return res.status(400).json({ message: 'Zły status.' });
+
+    requestsDb.findOne({ _id: id }, (err, doc) => {
+        if (!doc) return res.status(404).json({ message: 'Nie znaleziono.' });
+        if (!['pending'].includes(doc.status)) return res.json({ ok: true, skipped: true });
+
+        const update = { status, adminNote, totalValue, updatedAt: Date.now() };
+
+        if (status === 'rejected') {
+            requestsDb.update({ _id: id }, { $set: update }, {}, () => res.json({ ok: true }));
+        } else {
+            // 'valued' — czeka na admina, zapisz wycenę
+            requestsDb.update({ _id: id }, { $set: update }, {}, () => res.json({ ok: true }));
+        }
+    });
+});
+
+// Bot kredytuje saldo po approve (alternatywa: admin robi to ręcznie)
+app.post('/api/bot/credit-balance', requireBot, (req, res) => {
+    const userId = safeStr(req.body.userId);
+    const amount = parseInt(req.body.amount) || 0;
+    if (!userId || amount <= 0) return res.status(400).json({ message: 'Zły userId lub amount.' });
+
+    db.findOne({ _id: userId }, (err, user) => {
+        if (!user) return res.status(404).json({ message: 'Nie znaleziono użytkownika.' });
+        const newBal = user.balance + amount;
+        updateBalance(userId, newBal, () => {
+            // Powiadom przez socket jeśli online
+            io.emit('forceBalanceUpdate', { userId, newBalance: newBal });
+            res.json({ ok: true, newBalance: newBal });
         });
     });
 });
@@ -473,6 +657,70 @@ app.post('/api/admin/requests/:id/reject', requireAdmin, (req, res) => {
             {},
             () => res.json({ ok: true })
         );
+    });
+});
+
+// ── ESCROW DB (itemy zablokowane podczas coinflip) ─────────────
+const escrowDb = new Datastore({ filename: path.join(__dirname, 'baza_escrow.db'), autoload: true });
+
+function holdItems(userId, items, gameId, callback) {
+    // Usuń itemy z inventory i zapisz w escrow
+    removeFromInventory(userId, items, (result) => {
+        if (!result.ok) return callback({ ok: false, message: result.message });
+        const escrowDoc = {
+            _id: gameId,
+            userId,
+            items,
+            gameId,
+            heldAt: Date.now()
+        };
+        escrowDb.insert(escrowDoc, (err) => {
+            if (err) {
+                // rollback
+                addToInventory(userId, items, () => {});
+                return callback({ ok: false, message: 'Błąd escrow.' });
+            }
+            callback({ ok: true });
+        });
+    });
+}
+
+function releaseItems(gameId, winnerUserId, loserUserId, callback) {
+    escrowDb.find({ gameId }, (err, docs) => {
+        if (!docs || docs.length < 2) return callback({ ok: false, message: 'Brak escrow.' });
+        // Znajdź itemy winnera i losera
+        const winnerEscrow = docs.find(d => d.userId === winnerUserId);
+        const loserEscrow = docs.find(d => d.userId === loserUserId);
+        
+        // Winner dostaje wszystkie itemy (swoje + losera)
+        const allItems = [
+            ...(winnerEscrow?.items || []),
+            ...(loserEscrow?.items || [])
+        ];
+        
+        addToInventory(winnerUserId, allItems, (newItems) => {
+            // Usuń escrow
+            escrowDb.remove({ gameId }, {}, () => {
+                callback({ ok: true, items: newItems });
+            });
+        });
+    });
+}
+
+function returnItemsToOwner(gameId, userId, callback) {
+    escrowDb.findOne({ gameId, userId }, (err, doc) => {
+        if (!doc) return callback({ ok: false });
+        addToInventory(userId, doc.items, () => {
+            escrowDb.remove({ _id: doc._id }, {}, () => callback({ ok: true }));
+        });
+    });
+}
+
+// API: lista itemów escrow dla danej gry
+app.get('/api/escrow/:gameId', requireLogin, (req, res) => {
+    const gameId = safeStr(req.params.gameId);
+    escrowDb.find({ gameId }, (err, docs) => {
+        res.json({ items: docs || [] });
     });
 });
 
@@ -632,4 +880,3 @@ server.listen(PORT, '0.0.0.0', () => {
     }
     console.log(`\n🔐 Admin panel:  http://localhost:${PORT}/admin  (token z env: ADMIN_TOKEN)\n`);
 });
-

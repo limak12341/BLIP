@@ -363,56 +363,216 @@ socket.on('historyData', (records) => {
 });
 
 // ── DEPOZYT / INVENTARZ ───────────────────────────────────────
+// ── DEPOZYT: PET SEARCH ──────────────────────────────────────
+let petSearchCache = [];
+let petSearchTimer = null;
+let selectedDepositItems = []; // [{ name, category, rap, qty }]
+
 window.openDepositModal = () => {
-    document.getElementById('dep-search').value = '';
+    document.getElementById('pet-search').value = '';
     document.getElementById('dep-note').value = '';
-    document.getElementById('deposit-rows').innerHTML = '';
-    setDepositHint();
-    addDepositRow('');
+    selectedDepositItems = [];
+    renderDepositItems();
+    document.getElementById('pet-search-results').innerHTML = '';
+    document.getElementById('pet-search-results').classList.remove('open');
     document.getElementById('deposit-modal').style.display = 'flex';
+    // Wczytaj pety w tle
+    searchPets('', 'all');
 };
-window.closeDepositModal = () => { document.getElementById('deposit-modal').style.display = 'none'; };
 
-function setDepositHint() {
-    const hint = document.getElementById('deposit-hint');
-    hint.innerHTML = `
-      1) Zrób trade w PS99 i wyślij itemy do konta/bota.<br>
-      2) Tutaj wpisz co wysłałeś i kliknij <b>Zgłoś depozyt</b>.<br>
-      3) Admin potwierdzi i itemy pojawią się w Twoim inventarzu na stronie.`;
+window.closeDepositModal = () => {
+    document.getElementById('deposit-modal').style.display = 'none';
+    document.getElementById('pet-search-results').classList.remove('open');
+};
+
+// Wyszukiwanie petów
+async function searchPets(q, category) {
+    try {
+        const params = new URLSearchParams({ q, limit: '30' });
+        if (category && category !== 'all') params.set('category', category);
+        const data = await apiJson('/api/pets/search?' + params.toString());
+        petSearchCache = data.results || [];
+        renderPetResults(petSearchCache);
+    } catch (e) {
+        console.warn('Pet search error:', e.message);
+    }
 }
 
-function addDepositRow(prefillName) {
-    const wrap = document.getElementById('deposit-rows');
-    const row = document.createElement('div');
-    row.className = 'dep-row';
-    row.innerHTML = `
-      <input class="dep-name" placeholder="Nazwa itemu" value="${escapeHtml(prefillName || '')}">
-      <input class="dep-qty" type="number" min="1" value="1">
-      <button class="dep-del" title="Usuń">✕</button>
-    `;
-    row.querySelector('.dep-del').addEventListener('click', () => row.remove());
-    wrap.appendChild(row);
+function renderPetResults(pets) {
+    const el = document.getElementById('pet-search-results');
+    el.innerHTML = '';
+    
+    if (!pets.length) {
+        el.innerHTML = '<div class="pet-empty">Brak wyników. Spróbuj innej nazwy.</div>';
+        el.classList.add('open');
+        return;
+    }
+    
+    el.classList.add('open');
+    
+    pets.forEach(p => {
+        const alreadyAdded = selectedDepositItems.find(x => x.name === p.name);
+        const card = document.createElement('div');
+        card.className = 'pet-result-item';
+        
+        const catColors = { Huge: 'var(--gold)', Titanic: 'var(--purple)', Gargantuan: 'var(--red)' };
+        const catColor = catColors[p.category] || 'var(--muted)';
+        
+        card.innerHTML = `
+          <div class="pet-result-info">
+            <div class="pet-result-name">${escapeHtml(p.name)}</div>
+            <div class="pet-result-meta">
+              <span class="pet-cat-badge" style="background:${catColor}22;color:${catColor};border-color:${catColor}44">
+                ${p.category}
+              </span>
+              <span class="pet-rap">🪙 ${fmt(p.rap || 0)}</span>
+            </div>
+          </div>
+          <button class="pet-add-btn" ${alreadyAdded ? 'disabled' : ''}>
+            ${alreadyAdded ? '✓' : '+'}
+          </button>
+        `;
+        
+        card.querySelector('.pet-add-btn').addEventListener('click', () => {
+            if (alreadyAdded) return;
+            addDepositItem(p.name, p.category, p.rap || 0);
+        });
+        
+        el.appendChild(card);
+    });
 }
 
-window.addDepositRowFromSearch = () => {
-    const name = document.getElementById('dep-search').value.trim();
-    addDepositRow(name);
-    document.getElementById('dep-search').value = '';
-};
+function addDepositItem(name, category, rap) {
+    const existing = selectedDepositItems.find(x => x.name === name);
+    if (existing) {
+        existing.qty = Math.min(existing.qty + 1, 99);
+    } else {
+        selectedDepositItems.push({ name, category, rap, qty: 1 });
+    }
+    renderDepositItems();
+    // Odśwież wyniki żeby przycisk się zaktualizował
+    renderPetResults(petSearchCache);
+}
+
+function renderDepositItems() {
+    const list = document.getElementById('deposit-items-list');
+    const empty = document.getElementById('deposit-items-empty');
+    const totalEl = document.getElementById('deposit-total');
+    const totalVal = document.getElementById('deposit-total-value');
+    
+    list.innerHTML = '';
+    
+    if (!selectedDepositItems.length) {
+        empty.style.display = 'block';
+        totalEl.style.display = 'none';
+        return;
+    }
+    
+    empty.style.display = 'none';
+    totalEl.style.display = 'flex';
+    
+    let total = 0;
+    
+    selectedDepositItems.forEach((it, i) => {
+        total += it.rap * it.qty;
+        const el = document.createElement('div');
+        el.className = 'dep-item-row';
+        
+        const catColors = { Huge: 'var(--gold)', Titanic: 'var(--purple)', Gargantuan: 'var(--red)' };
+        const catColor = catColors[it.category] || 'var(--muted)';
+        
+        el.innerHTML = `
+          <div class="dep-item-info">
+            <span class="dep-item-name">${escapeHtml(it.name)}</span>
+            <span class="dep-item-cat" style="color:${catColor}">${it.category}</span>
+            <span class="dep-item-rap">🪙 ${fmt(it.rap)} each</span>
+          </div>
+          <div class="dep-item-qty-wrap">
+            <button class="dep-qty-btn" data-act="minus">−</button>
+            <span class="dep-qty-val">${it.qty}</span>
+            <button class="dep-qty-btn" data-act="plus">+</button>
+          </div>
+          <button class="dep-item-del" title="Usuń">✕</button>
+        `;
+        
+        el.querySelector('[data-act="minus"]').addEventListener('click', () => {
+            if (it.qty <= 1) {
+                selectedDepositItems.splice(i, 1);
+            } else {
+                it.qty--;
+            }
+            renderDepositItems();
+            renderPetResults(petSearchCache);
+        });
+        
+        el.querySelector('[data-act="plus"]').addEventListener('click', () => {
+            if (it.qty < 99) it.qty++;
+            renderDepositItems();
+        });
+        
+        el.querySelector('.dep-item-del').addEventListener('click', () => {
+            selectedDepositItems.splice(i, 1);
+            renderDepositItems();
+            renderPetResults(petSearchCache);
+        });
+        
+        list.appendChild(el);
+    });
+    
+    totalVal.textContent = '🪙 ' + fmt(total);
+}
+
+// Eventy dla wyszukiwarki petów
+document.addEventListener('DOMContentLoaded', () => {
+    const searchInput = document.getElementById('pet-search');
+    if (!searchInput) return;
+    
+    searchInput.addEventListener('input', () => {
+        clearTimeout(petSearchTimer);
+        petSearchTimer = setTimeout(() => {
+            const q = searchInput.value.trim();
+            const activeCat = document.querySelector('.pet-filter.active');
+            const cat = activeCat ? activeCat.getAttribute('data-cat') : 'all';
+            searchPets(q, cat);
+        }, 200);
+    });
+    
+    searchInput.addEventListener('focus', () => {
+        if (petSearchCache.length) {
+            document.getElementById('pet-search-results').classList.add('open');
+        }
+    });
+    
+    searchInput.addEventListener('blur', () => {
+        setTimeout(() => {
+            document.getElementById('pet-search-results').classList.remove('open');
+        }, 200);
+    });
+    
+    // Filtry kategorii
+    document.querySelectorAll('.pet-filter').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.pet-filter').forEach(x => x.classList.remove('active'));
+            btn.classList.add('active');
+            const q = searchInput.value.trim();
+            const cat = btn.getAttribute('data-cat');
+            searchPets(q, cat);
+        });
+    });
+});
 
 window.submitDepositRequest = async () => {
     try {
-        const rows = [...document.querySelectorAll('#deposit-rows .dep-row')];
-        const items = rows.map(r => ({
-            name: r.querySelector('.dep-name').value.trim(),
-            qty: parseInt(r.querySelector('.dep-qty').value || '1', 10) || 1
-        })).filter(x => x.name);
+        const items = selectedDepositItems.map(it => ({
+            name: it.name,
+            qty: it.qty
+        }));
         const note = document.getElementById('dep-note').value.trim();
         if (!items.length) return alert('Dodaj przynajmniej 1 item.');
         await apiJson('/api/deposit/request', { method: 'POST', body: JSON.stringify({ items, note }) });
         closeDepositModal();
         await refreshDepositTab();
-        alert('Zgłoszenie depozytu wysłane (pending).');
+        alert('✅ Zgłoszenie depozytu wysłane! Bot wyceni, admin potwierdzi.');
     } catch (e) {
         alert(e.message);
     }

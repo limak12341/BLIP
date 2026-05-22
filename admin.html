@@ -29,7 +29,13 @@
     .btn-no { background: rgba(232,65,24,.12); border-color: rgba(232,65,24,.25); color: var(--red); }
     .btn-no:hover { background: rgba(232,65,24,.18); }
     .admin-note { width: 320px; max-width: 100%; }
-    .login-mini { max-width: 520px; margin: 64px auto; position: relative; z-index: 1; }
+    .badge { padding:3px 10px; border-radius:8px; font-size:.75rem; font-weight:700; }
+    .badge.pending  { background:rgba(240,180,41,.15); color:#f0b429; border:1px solid rgba(240,180,41,.3); }
+    .badge.valued   { background:rgba(124,92,252,.15); color:#a78bfa; border:1px solid rgba(124,92,252,.3); }
+    .badge.approved { background:rgba(46,213,115,.12); color:#2ed573; border:1px solid rgba(46,213,115,.3); }
+    .badge.rejected { background:rgba(232,65,24,.1);   color:#e84118; border:1px solid rgba(232,65,24,.2); }
+    .badge.sent     { background:rgba(10,189,227,.12); color:#0abde3; border:1px solid rgba(10,189,227,.25); }
+    .empty-mini { color:var(--muted); font-size:.9rem; padding:20px; text-align:center; }
   </style>
 </head>
 <body>
@@ -57,6 +63,7 @@
       <div class="filters">
         <button class="chip active" data-status="" data-type="">Wszystkie</button>
         <button class="chip" data-status="pending" data-type="">Pending</button>
+        <button class="chip" data-status="valued" data-type="">Wycenione 🤖</button>
         <button class="chip" data-status="" data-type="deposit">Deposit</button>
         <button class="chip" data-status="" data-type="withdraw">Withdraw</button>
       </div>
@@ -117,21 +124,31 @@
       const items = (r.items || []).map(it => escapeHtml(it.name) + ' x' + fmt(it.qty)).join(', ');
       const card = document.createElement('div');
       card.className = 'admin-card';
+      // Pokaż wycenę RAP jeśli bot już obliczył
+      const rapBadge = r.totalValue
+        ? `<span style="background:rgba(240,180,41,.15);color:#f0b429;border:1px solid rgba(240,180,41,.3);padding:3px 10px;border-radius:8px;font-size:.8rem;font-weight:700">RAP: 🪙 ${fmt(r.totalValue)}</span>`
+        : `<span style="background:rgba(255,255,255,.05);color:var(--muted);padding:3px 10px;border-radius:8px;font-size:.8rem">Brak wyceny bota</span>`;
+
       card.innerHTML = `
-        <div style="display:flex;justify-content:space-between;gap:10px;align-items:center">
-          <div style="font-weight:900">
-            ${escapeHtml(r.type || '—')} ${badge(r.status)}
+        <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:8px;font-weight:900">
+            ${escapeHtml(r.type || '—')} ${badge(r.status)} ${rapBadge}
           </div>
           <div class="login-note">${timeAgo(r.createdAt || Date.now())}</div>
         </div>
-        <div style="margin-top:8px" class="login-note">Użytkownik: <b>${escapeHtml(r.username || r.userId)}</b> (${escapeHtml(r.userId)})</div>
-        <div style="margin-top:10px">${items || '—'}</div>
-        ${r.note ? `<div class="login-note" style="margin-top:8px">Notatka: ${escapeHtml(r.note)}</div>` : ``}
-        ${r.adminNote ? `<div class="login-note" style="margin-top:8px">Admin: ${escapeHtml(r.adminNote)}</div>` : ``}
+        <div style="margin-top:8px" class="login-note">
+          Użytkownik: <b>${escapeHtml(r.username || r.userId)}</b>
+          <span style="opacity:.6">(${escapeHtml(r.userId)})</span>
+        </div>
+        <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px">
+          ${(r.items||[]).map(it => `<span style="background:var(--surf2);padding:4px 10px;border-radius:8px;font-size:.82rem;border:1px solid var(--border)">${escapeHtml(it.name)} <b>x${it.qty||1}</b></span>`).join('') || '—'}
+        </div>
+        ${r.note ? `<div class="login-note" style="margin-top:8px">📝 ${escapeHtml(r.note)}</div>` : ``}
+        ${r.adminNote ? `<div class="login-note" style="margin-top:8px;color:#f0b429">🤖 Bot: ${escapeHtml(r.adminNote)}</div>` : ``}
         <div class="req-actions">
           <input class="login-input admin-note" placeholder="Notatka admina (opcjonalnie)" value="">
-          <button class="btn-ok">Approve</button>
-          <button class="btn-no">Reject</button>
+          <button class="btn-ok">✔ Approve</button>
+          <button class="btn-no">✕ Reject</button>
         </div>
       `;
       const noteInput = card.querySelector('.admin-note');
@@ -198,4 +215,3 @@
 
 </body>
 </html>
-

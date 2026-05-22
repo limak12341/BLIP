@@ -162,19 +162,43 @@
       <button class="modal-close" onclick="closeDepositModal()">✕</button>
     </div>
 
-    <div class="deposit-top">
-      <input class="login-input" id="dep-search" placeholder="Nazwa itemu (opcjonalnie)" style="margin-bottom:0">
-      <button class="btn-create" style="padding:10px 16px" onclick="addDepositRowFromSearch()">Dodaj</button>
+    <div class="deposit-hint" id="deposit-hint">
+      1) Zrób trade w PS99 i wyślij itemy do bota <b>kolil1234561</b>.<br>
+      2) Wyszukaj pety poniżej, dodaj je do listy i kliknij <b>Zgłoś depozyt</b>.<br>
+      3) Bot wyceni + admin potwierdzi i itemy trafią na Twoje konto.
     </div>
 
-    <div class="deposit-hint" id="deposit-hint"></div>
+    <!-- Wyszukiwarka petów -->
+    <div class="pet-search-wrap">
+      <div class="pet-search-input-wrap">
+        <span class="pet-search-icon">🔍</span>
+        <input class="pet-search-input" id="pet-search" placeholder="Szukaj peta... wpisz nazwę" autocomplete="off">
+        <div class="pet-filters">
+          <button class="pet-filter active" data-cat="all">All</button>
+          <button class="pet-filter" data-cat="Huge">Huge</button>
+          <button class="pet-filter" data-cat="Titanic">Titanic</button>
+          <button class="pet-filter" data-cat="Gargantuan">Gargantuan</button>
+        </div>
+      </div>
+      <div class="pet-search-results" id="pet-search-results"></div>
+    </div>
 
-    <div id="deposit-rows" class="dep-rows"></div>
+    <!-- Wybrane itemy do depozytu -->
+    <div style="margin-top:14px">
+      <label class="form-label" style="margin-bottom:6px">Wybrane itemy do depozytu:</label>
+      <div id="deposit-items-list" class="dep-items-list"></div>
+      <div id="deposit-items-empty" class="empty-mini" style="display:block">Kliknij + przy pety aby dodać.</div>
+    </div>
+
+    <div class="deposit-total" id="deposit-total" style="display:none">
+      <span>Łączna wartość RAP: </span>
+      <span id="deposit-total-value">🪙 0</span>
+    </div>
 
     <label class="form-label" style="margin-top:14px">Notatka (opcjonalnie)</label>
-    <input class="login-input" id="dep-note" placeholder="np. wysłałem trade 21:37, nick: ..." style="margin-bottom:0">
+    <input class="login-input" id="dep-note" placeholder="np. wysłałem trade 21:37" style="margin-bottom:0">
 
-    <button class="flip-btn" onclick="submitDepositRequest()" style="margin-top:16px">Zgłoś depozyt</button>
+    <button class="flip-btn" onclick="submitDepositRequest()" style="margin-top:16px">📥 Zgłoś depozyt</button>
   </div>
 </div>
 
@@ -187,7 +211,7 @@
     </div>
 
     <div class="deposit-hint" style="margin-top:0">
-      Wybierz itemy z inventarza na stronie i zgłoś wypłatę. Admin potwierdzi i wyśle trade.
+      Wybierz itemy z inventarza na stronie i zgłoś wypłatę. Admin potwierdzi i wyśle trade do Ciebie.
     </div>
 
     <div id="withdraw-items" class="inv-grid"></div>
@@ -195,7 +219,7 @@
     <label class="form-label" style="margin-top:14px">Notatka (opcjonalnie)</label>
     <input class="login-input" id="wd-note" placeholder="np. mój nick PS99 / godzina" style="margin-bottom:0">
 
-    <button class="flip-btn" onclick="submitWithdrawRequest()" style="margin-top:16px">Zgłoś wypłatę</button>
+    <button class="flip-btn" onclick="submitWithdrawRequest()" style="margin-top:16px">📤 Zgłoś wypłatę</button>
   </div>
 </div>
 
