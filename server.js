@@ -430,10 +430,17 @@ async function getRap() {
         _rapCache = {};
         _rapAt = Date.now();
         data.forEach(it => {
-            if (it?.configData?.id) _rapCache[it.configData.id] = it.value || 0;
-            // pt=1 = golden, pt=2 = rainbow — dodajemy suffix dla odmian
-            if (it?.configData?.pt === 1) _rapCache[it.configData.id + ' [Golden]'] = it.value || 0;
-            if (it?.configData?.pt === 2) _rapCache[it.configData.id + ' [Rainbow]'] = it.value || 0;
+            if (!it?.configData?.id) return;
+            const baseId = it.configData.id;
+            const pt = it.configData.pt;
+            const sh = it.configData.sh;
+            let suffix = '';
+            if (sh && pt === 1) suffix = ' [Shiny Golden]';
+            else if (sh && pt === 2) suffix = ' [Shiny Rainbow]';
+            else if (sh) suffix = ' [Shiny]';
+            else if (pt === 1) suffix = ' [Golden]';
+            else if (pt === 2) suffix = ' [Rainbow]';
+            _rapCache[baseId + suffix] = it.value || 0;
         });
         console.log(`[RAP] Pobrano ${Object.keys(_rapCache).length} wycen z BigGames`);
     } catch (e) {
@@ -482,21 +489,40 @@ app.get('/api/pets/search', async (req, res) => {
         if (category && (pet.category || '').toLowerCase() !== category) continue;
         
         // Filtruj po nazwie
-        if (q && !name.toLowerCase().includes(q)) continue;
+        const baseNameLower = name.toLowerCase();
+        if (q && !baseNameLower.includes(q)) continue;
         
-        const key = name.toLowerCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
+        // Generuj wszystkie warianty (normal, golden, rainbow, shiny, shiny golden, shiny rainbow)
+        // Używamy bezpośrednio nazwy (ze spacjami) — RAP cache używa ID z BigGames które też ma spacje
+        const baseId = name;
+        const variantSuffixes = ['', ' [Golden]', ' [Rainbow]', ' [Shiny]', ' [Shiny Golden]', ' [Shiny Rainbow]'];
         
-        const rapValue = rapLookup(rap, name);
+        // Najpierw sprawdź czy któryś wariant ma RAP > 0
+        let hasValue = false;
+        for (const suffix of variantSuffixes) {
+            const r = rap[baseId + suffix] || 0;
+            if (r > 0) { hasValue = true; break; }
+        }
+        if (!hasValue) continue; // pomiń pety bez wartości rynkowej
         
-        results.push({
-            name,
-            category: pet.category || 'Unknown',
-            rap: rapValue,
-            huge: !!pet.configData?.huge,
-            thumbnail: pet.configData?.thumbnail || '',
-        });
+        // Dodaj każdy wariant z wartością RAP
+        for (const suffix of variantSuffixes) {
+            const rapValue = rap[baseId + suffix] || 0;
+            if (rapValue <= 0) continue;
+            
+            const variantName = name + suffix;
+            const key = variantName.toLowerCase();
+            if (seen.has(key)) continue;
+            seen.add(key);
+            
+            results.push({
+                name: variantName,
+                category: pet.category || 'Unknown',
+                rap: rapValue,
+                huge: !!pet.configData?.huge,
+                thumbnail: pet.configData?.thumbnail || '',
+            });
+        }
     }
     
     // Sortuj: najpierw ogony, potem po RAP malejąco
@@ -578,13 +604,31 @@ app.get('/api/inventory/with-rap', requireLogin, async (req, res) => {
         const rapData = rapRes.data?.data || [];
         const rapMap = {};
         rapData.forEach(it => {
-            if (it?.configData?.id) rapMap[it.configData.id] = it.value || 0;
+            if (!it?.configData?.id) return;
+            const baseId = it.configData.id;
+            const pt = it.configData.pt;
+            const sh = it.configData.sh;
+            let suffix = '';
+            if (sh && pt === 1) suffix = ' [Shiny Golden]';
+            else if (sh && pt === 2) suffix = ' [Shiny Rainbow]';
+            else if (sh) suffix = ' [Shiny]';
+            else if (pt === 1) suffix = ' [Golden]';
+            else if (pt === 2) suffix = ' [Rainbow]';
+            rapMap[baseId + suffix] = it.value || 0;
         });
         
         getInventory(req.session.robloxId, (items) => {
             const enriched = items.map(it => {
-                const id = it.name.replace(/\s+/g, '');
-                const rap = rapMap[id] || rapMap[it.name] || 0;
+                const rap = rapMap[it.name] || 0;
+                return { ...it, rap };
+            });
+            res.json({ items: enriched });
+        });
+        
+        getInventory(req.session.robloxId, (items) => {
+            const enriched = items.map(it => {
+                const baseId = it.name.replace(/\s+/g, '');
+                const rap = rapMap[baseId] || rapMap[it.name] || 0;
                 return { ...it, rap };
             });
             res.json({ items: enriched });

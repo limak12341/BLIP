@@ -640,7 +640,7 @@ function renderPetResults(pets) {
             </div>
           </div>
           <button class="pet-add-btn" ${alreadyAdded ? 'disabled' : ''}>
-            ${alreadyAdded ? '✓ Dodano' : '+ Dodaj'}
+            ${alreadyAdded ? '✓ Added' : '+ Add'}
           </button>
         `;
         
@@ -655,7 +655,7 @@ function renderPetResults(pets) {
     // Przycisk "Gotowe" na dole wyników
     const doneWrap = document.createElement('div');
     doneWrap.className = 'pet-results-done';
-    doneWrap.innerHTML = `<button class="pet-done-btn" onclick="closePetResults()">✓ Gotowe</button>`;
+    doneWrap.innerHTML = `<button class="pet-done-btn" onclick="closePetResults()">✓ Done</button>`;
     el.appendChild(doneWrap);
 }
 
