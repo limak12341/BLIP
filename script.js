@@ -322,7 +322,8 @@ function renderJoinItemPicker() {
     const grid = document.getElementById('join-items-grid');
     const empty = document.getElementById('join-items-empty');
     const total = document.getElementById('join-total');
-    const minVal = joinGameTarget ? joinGameTarget.totalValue * 0.5 : 0;
+    const minVal = joinGameTarget ? Math.round(joinGameTarget.totalValue * 0.925) : 0;
+    const maxVal = joinGameTarget ? Math.round(joinGameTarget.totalValue * 1.075) : 0;
 
     grid.innerHTML = '';
 
@@ -339,7 +340,8 @@ function renderJoinItemPicker() {
     joinSelectedItems.forEach(it => selectedMap.set(it.name.toLowerCase(), it));
 
     const gameValueHtml = `<div class="modal-info" style="margin-top:0;margin-bottom:12px;font-size:.82rem">
-      Twój zakład musi być wart ≥ 🪙 ${fmt(minVal)} (50% stawki twórcy: 🪙 ${fmt(joinGameTarget.totalValue)})
+      Twój zakład musi mieć wartość <b>🪙 ${fmt(minVal)} – ${fmt(maxVal)}</b><br>
+      <span style="color:var(--muted);font-size:.78rem">±7.5% od 🪙 ${fmt(joinGameTarget.totalValue)} (zakład twórcy)</span>
     </div>`;
     document.getElementById('join-min-info').innerHTML = gameValueHtml;
 
@@ -937,7 +939,69 @@ function renderRequests() {
     });
 }
 
-// zamknij modale klikając tło
+// ── THEME SWITCHER ────────────────────────────────────────────
+const THEMES = ['purple','white','black','red','blue','green','yellow'];
+const ACCENT_THEMES = ['red','blue','green','yellow'];
+
+// Wczytaj zapisany theme na starcie
+(function loadSavedTheme() {
+    const saved = localStorage.getItem('bflip-theme');
+    if (saved === 'random') {
+        // Dla 'random' wylosuj jeden z akcentów przy każdym ładowaniu
+        const pick = ACCENT_THEMES[Math.floor(Math.random() * ACCENT_THEMES.length)];
+        document.documentElement.setAttribute('data-theme', pick);
+        markActiveTheme('random');
+    } else if (saved && THEMES.includes(saved)) {
+        document.documentElement.setAttribute('data-theme', saved);
+        markActiveTheme(saved);
+    }
+})();
+
+window.setTheme = function(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('bflip-theme', theme);
+    markActiveTheme(theme);
+    closeThemeMenu();
+};
+
+window.randomTheme = function() {
+    const pick = ACCENT_THEMES[Math.floor(Math.random() * ACCENT_THEMES.length)];
+    document.documentElement.setAttribute('data-theme', pick);
+    localStorage.setItem('bflip-theme', 'random');
+    markActiveTheme('random');
+    closeThemeMenu();
+};
+
+window.toggleThemeMenu = function() {
+    const menu = document.getElementById('theme-menu');
+    menu.classList.toggle('open');
+};
+
+function closeThemeMenu() {
+    document.getElementById('theme-menu').classList.remove('open');
+}
+
+function markActiveTheme(theme) {
+    document.querySelectorAll('.theme-opt').forEach(btn => {
+        const t = btn.getAttribute('data-theme');
+        // Random button nie ma data-theme — sprawdzamy czy theme === 'random'
+        if (theme === 'random' && !t) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.toggle('active', t === theme);
+        }
+    });
+}
+
+// Zamykanie theme menu po kliknięciu poza
+document.addEventListener('click', (e) => {
+    const wrap = document.querySelector('.theme-toggle-wrap');
+    if (wrap && !wrap.contains(e.target)) {
+        closeThemeMenu();
+    }
+});
+
+// ── CLOSE MODALS ON BACKGROUND CLICK ───────────────────────────
 ['create-modal','view-modal','result-modal','deposit-modal','withdraw-modal','join-modal'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;

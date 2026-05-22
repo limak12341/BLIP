@@ -13,18 +13,66 @@
 <!-- ── LOGIN ─────────────────────────────────────── -->
 <div id="login-overlay" class="login-overlay">
   <div class="login-box">
-    <div class="login-logo">B<span>FLIP</span></div>
-    <p class="login-sub">Zaloguj się przez weryfikację Bio Roblox</p>
-    <div id="verify-step-1">
-      <input type="text" id="rob-nick" placeholder="Twój nick z Roblox" class="login-input">
-      <button onclick="startVerification()" class="flip-btn" style="margin-top:10px">1. Generuj kod</button>
+    <!-- Floating orbs background -->
+    <div class="login-orbs">
+      <div class="orb o1"></div>
+      <div class="orb o2"></div>
+      <div class="orb o3"></div>
     </div>
-    <div id="verify-step-2" style="display:none; text-align:center;">
-      <p class="login-note" style="margin-bottom:8px">Wklej ten kod w swoje Bio na Robloxie:</p>
-      <div id="code-display" class="code-box"></div>
-      <button onclick="checkVerification()" class="flip-btn" style="background:#2ed573;margin-top:12px">2. Sprawdź →</button>
+
+    <div class="login-content">
+      <div class="login-logo-wrap">
+        <div class="login-coin">🪙</div>
+        <div class="login-logo">B<span>FLIP</span></div>
+      </div>
+      <p class="login-sub">Zaloguj się przez weryfikację Bio na Robloxie</p>
+
+      <!-- Step indicators -->
+      <div class="login-steps">
+        <div class="login-step active" id="step-indicator-1">
+          <span class="step-circle">1</span>
+          <span class="step-label">Generuj kod</span>
+        </div>
+        <div class="step-connector"></div>
+        <div class="login-step" id="step-indicator-2">
+          <span class="step-circle">2</span>
+          <span class="step-label">Wpisz w Bio</span>
+        </div>
+        <div class="step-connector"></div>
+        <div class="login-step" id="step-indicator-3">
+          <span class="step-circle">3</span>
+          <span class="step-label">Zweryfikuj</span>
+        </div>
+      </div>
+
+      <div id="verify-step-1" class="verify-step">
+        <div class="login-field">
+          <label class="login-field-label">Nick Roblox</label>
+          <input type="text" id="rob-nick" placeholder="np. xX_Dragon_Xx" class="login-input" autocomplete="off">
+        </div>
+        <button onclick="startVerification()" class="login-btn">
+          <span class="btn-icon">🔑</span>
+          Generuj kod
+        </button>
+      </div>
+
+      <div id="verify-step-2" style="display:none">
+        <div class="login-field">
+          <p class="login-note">Edytuj swoje Bio na Robloxie i wklej tam ten kod:</p>
+          <div class="code-box-wrap">
+            <div id="code-display" class="code-box"></div>
+            <button class="code-copy-btn" onclick="copyCode()" title="Kopiuj">📋</button>
+          </div>
+          <p class="login-note" style="margin-top:8px">✅ Zapisz profil po zmianie Bio</p>
+        </div>
+        <button onclick="checkVerification()" class="login-btn login-btn-success">
+          <span class="btn-icon">✓</span>
+          Sprawdź i zaloguj
+        </button>
+      </div>
+
+      <p id="login-error" class="login-error"></p>
     </div>
-    <p id="login-error" class="login-error"></p>
   </div>
 </div>
 
@@ -262,6 +310,19 @@
       <img id="nav-avatar-img" class="user-avatar-img" src="" alt="avatar">
       <span class="user-name" id="nav-username">—</span>
     </div>
+    <div class="theme-toggle-wrap">
+      <button class="theme-btn" onclick="toggleThemeMenu()" title="Theme">🎨</button>
+      <div class="theme-menu" id="theme-menu">
+        <button class="theme-opt" data-theme="purple" onclick="setTheme('purple')"><span class="theme-dot dot-purple"></span>Purple</button>
+        <button class="theme-opt" data-theme="white" onclick="setTheme('white')"><span class="theme-dot dot-white"></span>White</button>
+        <button class="theme-opt" data-theme="black" onclick="setTheme('black')"><span class="theme-dot dot-black"></span>Black</button>
+        <button class="theme-opt" data-theme="red" onclick="setTheme('red')"><span class="theme-dot dot-red"></span>Red</button>
+        <button class="theme-opt" data-theme="blue" onclick="setTheme('blue')"><span class="theme-dot dot-blue"></span>Blue</button>
+        <button class="theme-opt" data-theme="green" onclick="setTheme('green')"><span class="theme-dot dot-green"></span>Green</button>
+        <button class="theme-opt" data-theme="yellow" onclick="setTheme('yellow')"><span class="theme-dot dot-yellow"></span>Yellow</button>
+        <button class="theme-opt" onclick="randomTheme()"><span class="theme-dot dot-random">🎲</span>Random</button>
+      </div>
+    </div>
     <div class="balance-box">
       <span>🪙</span><span id="balance-amount">—</span>
     </div>
@@ -341,25 +402,62 @@
 <script src="/socket.io/socket.io.js"></script>
 <script src="script.js"></script>
 <script>
+function copyCode() {
+    const code = document.getElementById('code-display').innerText;
+    navigator.clipboard.writeText(code).then(() => {
+        const btn = document.querySelector('.code-copy-btn');
+        btn.textContent = '✅';
+        setTimeout(() => btn.textContent = '📋', 2000);
+    }).catch(() => {});
+}
 async function startVerification() {
     const username = document.getElementById('rob-nick').value.trim();
     if (!username) return alert('Wpisz nick!');
-    const res = await fetch('/verify-start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ username }) });
-    const data = await res.json();
-    if (data.code) {
-        document.getElementById('code-display').innerText = data.code;
-        document.getElementById('verify-step-1').style.display = 'none';
-        document.getElementById('verify-step-2').style.display = 'block';
-    } else {
-        document.getElementById('login-error').textContent = data.message || 'Błąd!';
+    
+    const btn = document.querySelector('#verify-step-1 .login-btn');
+    btn.disabled = true; btn.textContent = 'Generowanie...';
+    
+    try {
+        const res = await fetch('/verify-start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ username }) });
+        const data = await res.json();
+        if (data.code) {
+            document.getElementById('code-display').innerText = data.code;
+            document.getElementById('verify-step-1').style.display = 'none';
+            document.getElementById('verify-step-2').style.display = 'block';
+            document.getElementById('step-indicator-1').classList.add('done');
+            document.getElementById('step-indicator-2').classList.add('active');
+        } else {
+            document.getElementById('login-error').textContent = data.message || 'Błąd!';
+            btn.disabled = false; btn.innerHTML = '<span class="btn-icon">🔑</span>Generuj kod';
+        }
+    } catch(e) {
+        document.getElementById('login-error').textContent = 'Błąd połączenia z serwerem.';
+        btn.disabled = false; btn.innerHTML = '<span class="btn-icon">🔑</span>Generuj kod';
     }
 }
 async function checkVerification() {
     const username = document.getElementById('rob-nick').value.trim();
-    const res = await fetch('/verify-check', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ username }) });
-    const data = await res.json();
-    if (data.success) location.reload();
-    else document.getElementById('login-error').textContent = data.message || 'Kod nie znaleziony w Bio!';
+    
+    const btn = document.querySelector('#verify-step-2 .login-btn');
+    btn.disabled = true; btn.textContent = 'Sprawdzanie...';
+    
+    try {
+        const res = await fetch('/verify-check', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ username }) });
+        const data = await res.json();
+        if (data.success) {
+            document.getElementById('step-indicator-2').classList.add('done');
+            document.getElementById('step-indicator-3').classList.add('active');
+            document.getElementById('login-error').textContent = '✅ Logowanie pomyślne! Zaraz nastąpi przekierowanie...';
+            document.getElementById('login-error').style.color = '#2ed573';
+            setTimeout(() => location.reload(), 800);
+        } else {
+            document.getElementById('login-error').textContent = data.message || 'Kod nie znaleziony w Bio!';
+            btn.disabled = false; btn.innerHTML = '<span class="btn-icon">✓</span>Sprawdź i zaloguj';
+        }
+    } catch(e) {
+        document.getElementById('login-error').textContent = 'Błąd połączenia z serwerem.';
+        btn.disabled = false; btn.innerHTML = '<span class="btn-icon">✓</span>Sprawdź i zaloguj';
+    }
 }
 </script>
 </body>

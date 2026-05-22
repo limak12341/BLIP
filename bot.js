@@ -39,12 +39,21 @@ let rapFetchedAt = 0;
 async function fetchRap() {
     if (Date.now() - rapFetchedAt < 5 * 60_000) return; // cache 5 min
     try {
-        const res = await axios.get('https://biggamesapi.io/api/rap', { timeout: 8000 });
+        const res = await axios.get('https://ps99.biggamesapi.io/api/rap', { timeout: 8000 });
         const data = res.data?.data || [];
         rapCache = {};
         data.forEach(item => {
             if (item?.configData?.id) {
-                rapCache[item.configData.id] = item.value || 0;
+                const baseId = item.configData.id;
+                const pt = item.configData.pt;
+                const sh = item.configData.sh;
+                let suffix = '';
+                if (sh && pt === 1) suffix = ' [Shiny Golden]';
+                else if (sh && pt === 2) suffix = ' [Shiny Rainbow]';
+                else if (sh) suffix = ' [Shiny]';
+                else if (pt === 1) suffix = ' [Golden]';
+                else if (pt === 2) suffix = ' [Rainbow]';
+                rapCache[baseId + suffix] = item.value || 0;
             }
         });
         rapFetchedAt = Date.now();
@@ -57,9 +66,18 @@ async function fetchRap() {
 // Pobierz wartość peta po nazwie (np. "Huge Cat", "Titanic Corgi")
 function getPetValue(petName) {
     if (!petName) return 0;
-    // BigGames API używa ID np. "HugeCat" — konwertujemy
-    const id = petName.replace(/\s+/g, '');
-    return rapCache[id] || rapCache[petName] || 0;
+    // 1. Dokładne dopasowanie nazwy
+    if (rapCache[petName]) return rapCache[petName];
+    // 2. Bez spacji (configData.id z API)
+    const stripped = petName.replace(/\s+/g, '');
+    if (rapCache[stripped]) return rapCache[stripped];
+    // 3. Warianty: 'Huge Cat [Golden]' → szukaj 'HugeCat [Golden]'
+    const sfx = petName.match(/\s+(\[.*?])$/);
+    if (sfx) {
+        const base = petName.slice(0, sfx.index).replace(/\s+/g, '');
+        if (rapCache[base + ' ' + sfx[1]]) return rapCache[base + ' ' + sfx[1]];
+    }
+    return 0;
 }
 
 // Przelicz itemy na łączną wartość

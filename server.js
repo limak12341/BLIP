@@ -615,27 +615,29 @@ app.get('/api/inventory/with-rap', requireLogin, async (req, res) => {
             else if (pt === 1) suffix = ' [Golden]';
             else if (pt === 2) suffix = ' [Rainbow]';
             rapMap[baseId + suffix] = it.value || 0;
-        });
-        
-        getInventory(req.session.robloxId, (items) => {
+        });        getInventory(req.session.robloxId, (items) => {
             const enriched = items.map(it => {
-                const rap = rapMap[it.name] || 0;
+                // Proste wyszukiwanie: najpierw dokładna nazwa, potem stripped
+                let rap = rapMap[it.name] || 0;
+                if (!rap) {
+                    const stripped = it.name.replace(/\s+/g, '');
+                    rap = rapMap[stripped] || 0;
+                }
+                // Dla wariantów (Golden/Rainbow/Shiny): wyciągnij suffix
+                if (!rap) {
+                    const m = it.name.match(/\s+(\[.*?])$/);
+                    if (m) {
+                        const base = it.name.slice(0, m.index).replace(/\s+/g, '');
+                        rap = rapMap[base + ' ' + m[1]] || 0;
+                    }
+                }
                 return { ...it, rap };
             });
             res.json({ items: enriched });
         });
-        
-        getInventory(req.session.robloxId, (items) => {
-            const enriched = items.map(it => {
-                const baseId = it.name.replace(/\s+/g, '');
-                const rap = rapMap[baseId] || rapMap[it.name] || 0;
-                return { ...it, rap };
-            });
-            res.json({ items: enriched });
-        });
-    } catch (e) {
-        console.warn('[RAP] Error fetching:', e.message);
-        getInventory(req.session.robloxId, (items) => res.json({ items }));
+        } catch (e) {
+            console.warn('[RAP] Error fetching:', e.message);
+            getInventory(req.session.robloxId, (items) => res.json({ items }));
     }
 });
 
@@ -850,9 +852,14 @@ io.on('connection', (socket) => {
         const joinItems = sanitizeItems(data.items);
         if (!joinItems.length) return socket.emit('gameError', 'Dodaj przynajmniej 1 item do zakładu.');
 
-        // Sprawdź czy wartość itemów jest zbliżona do wartości gry
+        // Sprawdź czy wartość itemów jest w zakresie ±7.5% wartości gry
         const joinValue = joinItems.reduce((s, it) => s + (it.rap || 0) * it.qty, 0);
-        if (joinValue < game.totalValue * 0.5) return socket.emit('gameError', 'Twoje itemy muszą mieć wartość zbliżoną do zakładu.');
+        const minVal = Math.round(game.totalValue * 0.925);
+        const maxVal = Math.round(game.totalValue * 1.075);
+        if (joinValue < minVal || joinValue > maxVal) {
+            const fmtV = (v) => v.toLocaleString('en-US');
+            return socket.emit('gameError', `Twoje itemy muszą mieć wartość w zakresie ${fmtV(minVal)}-${fmtV(maxVal)} 🪙 (±7.5% od ${fmtV(game.totalValue)})`);
+        }
 
         // Zablokuj itemy jointera w escrow
         holdItems(sess.robloxId, joinItems, game.id, (result) => {
