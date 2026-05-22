@@ -63,7 +63,8 @@ function sanitizeItems(items) {
     return items
         .map(it => ({
             name: safeStr(it?.name).slice(0, 80),
-            qty: Math.max(1, Math.min(9999, parseInt(it?.qty || 1, 10) || 1))
+            qty: Math.max(1, Math.min(9999, parseInt(it?.qty || 1, 10) || 1)),
+            rap: Math.max(0, parseInt(it?.rap) || 0)
         }))
         .filter(it => it.name.length > 0);
 }
@@ -163,15 +164,12 @@ function getOrCreateUser(robloxId, username, avatarUrl, callback) {
         if (doc) {
             db.update({ _id: robloxId }, { $set: { username, avatarUrl } }, {}, () => callback({ ...doc, username, avatarUrl }));
         } else {
-            const newUser = { _id: robloxId, username, avatarUrl, balance: 1000 };
+            const newUser = { _id: robloxId, username, avatarUrl };
             db.insert(newUser, (err2, inserted) => callback(inserted));
         }
     });
 }
 
-function updateBalance(robloxId, newBalance, callback) {
-    db.update({ _id: robloxId }, { $set: { balance: newBalance } }, {}, callback);
-}
 
 function saveLobbyGame(game) {
     lobbyDb.update(
@@ -179,7 +177,8 @@ function saveLobbyGame(game) {
         {
             _id: game.id,
             id: game.id,
-            bet: game.bet,
+            items: game.items,
+            totalValue: game.totalValue,
             status: game.status,
             createdAt: game.createdAt,
             creator: game.creator
@@ -201,7 +200,8 @@ function loadLobbyGames(callback) {
         docs.forEach(doc => {
             activeGames.set(doc.id, {
                 id: doc.id,
-                bet: doc.bet,
+                items: doc.items,
+                totalValue: doc.totalValue,
                 status: doc.status,
                 createdAt: doc.createdAt,
                 creator: { ...doc.creator, socketId: null },
@@ -217,13 +217,20 @@ function loadLobbyGames(callback) {
 function saveGameToHistory(game, winningSide) {
     const creatorWon = game.creator.side === winningSide;
     const record = {
-        gameId: game.id, bet: game.bet, winningSide, timestamp: Date.now(),
+        gameId: game.id,
+        totalValue: game.totalValue || 0,
+        joinValue: game.joinValue || 0,
+        winningSide,
+        timestamp: Date.now(),
         players: [game.creator.robloxId, game.joiner.robloxId],
         creator: { robloxId: game.creator.robloxId, username: game.creator.username, avatarUrl: game.creator.avatarUrl, side: game.creator.side, won: creatorWon },
-        joiner: { robloxId: game.joiner.robloxId, username: game.joiner.username, avatarUrl: game.joiner.avatarUrl, side: game.joiner.side, won: !creatorWon }
+        joiner: { robloxId: game.joiner.robloxId, username: game.joiner.username, avatarUrl: game.joiner.avatarUrl, side: game.joiner.side, won: !creatorWon },
+        creatorItems: game.items,
+        joinerItems: game.joinerItems
     };
     gamesDb.insert(record, (err) => { if (err) console.error('Błąd zapisu historii:', err); });
 }
+
 
 function getHistory(robloxId, callback) {
     gamesDb.find({ players: robloxId }).sort({ timestamp: -1 }).limit(30).exec((err, docs) => callback(err ? [] : docs));
@@ -231,7 +238,11 @@ function getHistory(robloxId, callback) {
 
 function broadcastGames() {
     const list = [...activeGames.values()].map(g => ({
-        id: g.id, bet: g.bet, status: g.status, createdAt: g.createdAt,
+        id: g.id,
+        items: g.items,
+        totalValue: g.totalValue || 0,
+        status: g.status,
+        createdAt: g.createdAt,
         creator: { robloxId: g.creator.robloxId, username: g.creator.username, avatarUrl: g.creator.avatarUrl, side: g.creator.side }
     }));
     io.emit('gamesList', list);
@@ -560,21 +571,28 @@ app.post('/api/bot/update-deposit', requireBot, (req, res) => {
     });
 });
 
-// Bot kredytuje saldo po approve (alternatywa: admin robi to ręcznie)
-app.post('/api/bot/credit-balance', requireBot, (req, res) => {
-    const userId = safeStr(req.body.userId);
-    const amount = parseInt(req.body.amount) || 0;
-    if (!userId || amount <= 0) return res.status(400).json({ message: 'Zły userId lub amount.' });
-
-    db.findOne({ _id: userId }, (err, user) => {
-        if (!user) return res.status(404).json({ message: 'Nie znaleziono użytkownika.' });
-        const newBal = user.balance + amount;
-        updateBalance(userId, newBal, () => {
-            // Powiadom przez socket jeśli online
-            io.emit('forceBalanceUpdate', { userId, newBalance: newBal });
-            res.json({ ok: true, newBalance: newBal });
+// Endpoint: inventarz z RAP (dla frontendu coinflip)
+app.get('/api/inventory/with-rap', requireLogin, async (req, res) => {
+    try {
+        const rapRes = await axios.get('https://ps99.biggamesapi.io/api/rap', { timeout: 8000 });
+        const rapData = rapRes.data?.data || [];
+        const rapMap = {};
+        rapData.forEach(it => {
+            if (it?.configData?.id) rapMap[it.configData.id] = it.value || 0;
         });
-    });
+        
+        getInventory(req.session.robloxId, (items) => {
+            const enriched = items.map(it => {
+                const id = it.name.replace(/\s+/g, '');
+                const rap = rapMap[id] || rapMap[it.name] || 0;
+                return { ...it, rap };
+            });
+            res.json({ items: enriched });
+        });
+    } catch (e) {
+        console.warn('[RAP] Error fetching:', e.message);
+        getInventory(req.session.robloxId, (items) => res.json({ items }));
+    }
 });
 
 // ── ADMIN ────────────────────────────────────────────────────
@@ -668,7 +686,7 @@ function holdItems(userId, items, gameId, callback) {
     removeFromInventory(userId, items, (result) => {
         if (!result.ok) return callback({ ok: false, message: result.message });
         const escrowDoc = {
-            _id: gameId,
+            _id: gameId + '_' + userId,
             userId,
             items,
             gameId,
@@ -716,13 +734,7 @@ function returnItemsToOwner(gameId, userId, callback) {
     });
 }
 
-// API: lista itemów escrow dla danej gry
-app.get('/api/escrow/:gameId', requireLogin, (req, res) => {
-    const gameId = safeStr(req.params.gameId);
-    escrowDb.find({ gameId }, (err, docs) => {
-        res.json({ items: docs || [] });
-    });
-});
+
 
 // ── SOCKETS (coinflip) ────────────────────────────────────────
 io.on('connection', (socket) => {
@@ -730,7 +742,7 @@ io.on('connection', (socket) => {
     socket.on('checkSession', () => {
         if (sess?.robloxId) {
             getOrCreateUser(sess.robloxId, sess.username, sess.avatarUrl, (user) => {
-                socket.emit('sessionOk', { username: user.username, avatarUrl: user.avatarUrl, balance: user.balance, robloxId: user._id });
+                socket.emit('sessionOk', { username: user.username, avatarUrl: user.avatarUrl, robloxId: user._id });
                 broadcastGames();
             });
         } else socket.emit('sessionNone');
@@ -743,27 +755,32 @@ io.on('connection', (socket) => {
 
     socket.on('createGame', (data) => {
         if (!sess?.robloxId) return socket.emit('gameError', 'Nie jesteś zalogowany!');
-        const bet = parseInt(data.bet);
         const side = data.side;
-        if (isNaN(bet) || bet < 1 || !['heads','tails'].includes(side)) return socket.emit('gameError', 'Nieprawidłowe dane.');
-        db.findOne({ _id: sess.robloxId }, (err, user) => {
-            if (!user || bet > user.balance) return socket.emit('gameError', 'Za mało monet!');
-            updateBalance(sess.robloxId, user.balance - bet, () => {
-                socket.emit('balanceUpdate', user.balance - bet);
-                const gameId = `G${gameCounter++}`;
-                const game = {
-                    id: gameId,
-                    bet,
-                    status: 'waiting',
-                    createdAt: Date.now(),
-                    creator: { robloxId: sess.robloxId, username: sess.username, avatarUrl: sess.avatarUrl, side, socketId: socket.id },
-                    joiner: null
-                };
-                activeGames.set(gameId, game);
-                saveLobbyGame(game);
-                socket.emit('gameCreated', { gameId });
-                broadcastGames();
-            });
+        const items = sanitizeItems(data.items);
+        if (!['heads','tails'].includes(side)) return socket.emit('gameError', 'Nieprawidłowa strona.');
+        if (!items.length) return socket.emit('gameError', 'Dodaj przynajmniej 1 item do zakładu.');
+
+        // Zablokuj itemy w escrow
+        holdItems(sess.robloxId, items, 'temp', (result) => {
+            if (!result.ok) return socket.emit('gameError', result.message);
+
+            const gameId = `G${gameCounter++}`;
+            const totalValue = items.reduce((s, it) => s + (it.rap || 0) * it.qty, 0);
+            const game = {
+                id: gameId,
+                items,
+                totalValue,
+                status: 'waiting',
+                createdAt: Date.now(),
+                creator: { robloxId: sess.robloxId, username: sess.username, avatarUrl: sess.avatarUrl, side, socketId: socket.id },
+                joiner: null
+            };
+            activeGames.set(gameId, game);
+            saveLobbyGame(game);
+            // Aktualizuj escrow z właściwym gameId
+            escrowDb.update({ userId: sess.robloxId, gameId: 'temp' }, { $set: { gameId } }, {}, () => {});
+            socket.emit('gameCreated', { gameId });
+            broadcastGames();
         });
     });
 
@@ -772,15 +789,11 @@ io.on('connection', (socket) => {
         const game = activeGames.get(data.gameId);
         if (!game || game.status !== 'waiting') return socket.emit('gameError', 'Gry nie można anulować.');
         if (game.creator.robloxId !== sess.robloxId) return socket.emit('gameError', 'Tylko twórca może anulować grę.');
-        db.findOne({ _id: sess.robloxId }, (err, user) => {
-            if (!user) return socket.emit('gameError', 'Nie znaleziono konta.');
-            const newBalance = user.balance + game.bet;
-            updateBalance(sess.robloxId, newBalance, () => {
-                activeGames.delete(game.id);
-                removeLobbyGame(game.id);
-                socket.emit('balanceUpdate', newBalance);
-                broadcastGames();
-            });
+        // Zwróć itemy z escrow twórcy
+        returnItemsToOwner(game.id, sess.robloxId, (result) => {
+            activeGames.delete(game.id);
+            removeLobbyGame(game.id);
+            broadcastGames();
         });
     });
 
@@ -788,67 +801,76 @@ io.on('connection', (socket) => {
         if (!sess?.robloxId) return socket.emit('gameError', 'Nie jesteś zalogowany!');
         const game = activeGames.get(data.gameId);
         if (!game || game.status !== 'waiting' || game.creator.robloxId === sess.robloxId) return socket.emit('gameError', 'Gra niedostępna.');
-        db.findOne({ _id: sess.robloxId }, (err, user) => {
-            if (!user || game.bet > user.balance) return socket.emit('gameError', 'Za mało monet!');
-            updateBalance(sess.robloxId, user.balance - game.bet, () => {
-                socket.emit('balanceUpdate', user.balance - game.bet);
-                game.joiner = { robloxId: sess.robloxId, username: sess.username, avatarUrl: sess.avatarUrl, socketId: socket.id, side: game.creator.side === 'heads' ? 'tails' : 'heads' };
-                game.status = 'flipping';
-                removeLobbyGame(game.id);
-                broadcastGames();
 
-                const flipPayload = {
-                    gameId: game.id,
-                    bet: game.bet,
-                    creator: {
-                        username: game.creator.username,
-                        avatarUrl: game.creator.avatarUrl,
-                        side: game.creator.side
-                    },
-                    joiner: {
-                        username: game.joiner.username,
-                        avatarUrl: game.joiner.avatarUrl,
-                        side: game.joiner.side
-                    }
-                };
-                const creatorSock = io.sockets.sockets.get(game.creator.socketId);
-                if (creatorSock) creatorSock.emit('flipStart', flipPayload);
-                socket.emit('flipStart', flipPayload);
+        // Pobierz itemy jointera z frontendu (wybrane w modalu)
+        const joinItems = sanitizeItems(data.items);
+        if (!joinItems.length) return socket.emit('gameError', 'Dodaj przynajmniej 1 item do zakładu.');
 
-                setTimeout(() => {
-                    const winningSide = Math.random() < 0.5 ? 'heads' : 'tails';
-                    const creatorWon = game.creator.side === winningSide;
-                    const prize = game.bet * 2;
-                    const winnerId = creatorWon ? game.creator.robloxId : game.joiner.robloxId;
-                    db.findOne({ _id: winnerId }, (err2, doc) => {
-                        if (doc) {
-                            const newBal = doc.balance + prize;
-                            updateBalance(winnerId, newBal, () => {
-                                const winnerSock = creatorWon ? creatorSock : socket;
-                                if (winnerSock) winnerSock.emit('balanceUpdate', newBal);
-                            });
-                        }
-                    });
-                    saveGameToHistory(game, winningSide);
+        // Sprawdź czy wartość itemów jest zbliżona do wartości gry
+        const joinValue = joinItems.reduce((s, it) => s + (it.rap || 0) * it.qty, 0);
+        if (joinValue < game.totalValue * 0.5) return socket.emit('gameError', 'Twoje itemy muszą mieć wartość zbliżoną do zakładu.');
 
-                    const resultBase = { ...flipPayload, winningSide };
+        // Zablokuj itemy jointera w escrow
+        holdItems(sess.robloxId, joinItems, game.id, (result) => {
+            if (!result.ok) return socket.emit('gameError', result.message);
+
+            game.joiner = { robloxId: sess.robloxId, username: sess.username, avatarUrl: sess.avatarUrl, socketId: socket.id, side: game.creator.side === 'heads' ? 'tails' : 'heads' };
+            game.joinerItems = joinItems;
+            game.joinValue = joinValue;
+            game.status = 'flipping';
+            removeLobbyGame(game.id);
+            broadcastGames();
+
+            const flipPayload = {
+                gameId: game.id,
+                items: game.items,
+                totalValue: game.totalValue,
+                creator: {
+                    username: game.creator.username,
+                    avatarUrl: game.creator.avatarUrl,
+                    side: game.creator.side
+                },
+                joiner: {
+                    username: game.joiner.username,
+                    avatarUrl: game.joiner.avatarUrl,
+                    side: game.joiner.side
+                }
+            };
+            const creatorSock = io.sockets.sockets.get(game.creator.socketId);
+            if (creatorSock) creatorSock.emit('flipStart', flipPayload);
+            socket.emit('flipStart', flipPayload);
+
+            setTimeout(() => {
+                const winningSide = Math.random() < 0.5 ? 'heads' : 'tails';
+                const creatorWon = game.creator.side === winningSide;
+                const winnerId = creatorWon ? game.creator.robloxId : game.joiner.robloxId;
+                const loserId = creatorWon ? game.joiner.robloxId : game.creator.robloxId;
+
+                // Przekaż wszystkie itemy zwycięzcy
+                releaseItems(game.id, winnerId, loserId, (releaseResult) => {
+                    const resultBase = {
+                        ...flipPayload,
+                        winningSide,
+                        prize: joinValue + game.totalValue
+                    };
                     if (creatorSock) {
                         creatorSock.emit('gameResult', {
                             ...resultBase,
                             won: creatorWon,
-                            prize: creatorWon ? prize : 0
+                            prize: creatorWon ? resultBase.prize : 0
                         });
                     }
                     socket.emit('gameResult', {
                         ...resultBase,
                         won: !creatorWon,
-                        prize: !creatorWon ? prize : 0
+                        prize: !creatorWon ? resultBase.prize : 0
                     });
 
+                    saveGameToHistory(game, winningSide);
                     activeGames.delete(game.id);
                     broadcastGames();
-                }, 2600);
-            });
+                });
+            }, 2600);
         });
     });
 

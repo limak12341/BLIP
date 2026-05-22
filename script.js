@@ -1,7 +1,6 @@
 "use strict";
 const socket = io();
 
-let balance         = 0;
 let currentUsername = '';
 let currentAvatar   = '';
 let currentSide     = 'heads';
@@ -12,13 +11,21 @@ const FLIP_MS       = 2200;
 // Depozyty / inventarz
 let myInventory = [];
 let myRequests  = [];
-let withdrawSelection = new Map(); // nameLower -> qty
+let withdrawSelection = new Map();
+
+// Inventory z RAP (do create/join game)
+let myInventoryRAP = [];
+
+// Wybrane itemy do create game
+let createSelectedItems = [];
+
+// Wybrane itemy do join game (przez view modal)
+let joinSelectedItems = [];
 
 // ── DOM ───────────────────────────────────────────────────────
 const loginOverlay   = document.getElementById('login-overlay');
 const navAvatarImg   = document.getElementById('nav-avatar-img');
 const navUsername    = document.getElementById('nav-username');
-const balanceEl      = document.getElementById('balance-amount');
 const navUser        = document.getElementById('nav-user');
 const logoutBtn      = document.getElementById('logout-btn');
 const gamesList      = document.getElementById('games-list');
@@ -63,8 +70,6 @@ socket.on('sessionOk', (data) => {
     loginOverlay.style.display = 'none';
     currentUsername = data.username;
     currentAvatar   = data.avatarUrl || '';
-    balance = data.balance;
-    balanceEl.textContent = fmt(balance);
     navUsername.textContent = data.username;
     navUser.style.display = 'flex';
     logoutBtn.style.display = 'inline-block';
@@ -73,7 +78,6 @@ socket.on('sessionOk', (data) => {
 });
 
 socket.on('sessionNone', () => { loginOverlay.style.display = 'flex'; });
-socket.on('balanceUpdate', (v) => { balance = v; balanceEl.textContent = fmt(v); });
 socket.on('gameError', (msg) => alert(msg));
 
 // ── TABS ──────────────────────────────────────────────────────
@@ -97,29 +101,114 @@ async function refreshDepositTab() {
         renderInventory();
         renderRequests();
     } catch (e) {
-        // jeśli user nie jest zalogowany, backend zwróci 401
         console.warn(e.message);
     }
 }
 
-// ── MODAL: STWÓRZ GRĘ ────────────────────────────────────────
-window.openCreateModal  = () => { document.getElementById('modal-bet').value = Math.min(50, balance); updateTotal(); document.getElementById('create-modal').style.display = 'flex'; };
-window.closeCreateModal = () => { document.getElementById('create-modal').style.display = 'none'; };
-window.selectModalSide  = (side) => {
+// ── ITEM PICKER (create game) ────────────────────────────────
+async function loadInventoryRAP() {
+    try {
+        const data = await apiJson('/api/inventory/with-rap');
+        myInventoryRAP = data.items || [];
+    } catch (e) {
+        myInventoryRAP = [];
+    }
+}
+
+window.openCreateModal = async () => {
+    createSelectedItems = [];
+    await loadInventoryRAP();
+    renderCreateItemPicker();
+    document.getElementById('create-modal').style.display = 'flex';
+};
+
+window.closeCreateModal = () => {
+    document.getElementById('create-modal').style.display = 'none';
+};
+
+window.selectModalSide = (side) => {
     currentSide = side;
     document.getElementById('modal-heads').classList.toggle('active', side==='heads');
     document.getElementById('modal-tails').classList.toggle('active', side==='tails');
 };
-window.setModalBet = (v) => { document.getElementById('modal-bet').value = Math.min(v, balance); updateTotal(); };
-window.updateTotal = () => {
-    const bet = parseInt(document.getElementById('modal-bet').value) || 0;
-    document.getElementById('modal-total').textContent = `🪙 ${fmt(bet * 2)}`;
-};
+
+function renderCreateItemPicker() {
+    const grid = document.getElementById('create-items-grid');
+    const empty = document.getElementById('create-items-empty');
+    const total = document.getElementById('create-total');
+    const count = document.getElementById('create-item-count');
+
+    grid.innerHTML = '';
+
+    if (!myInventoryRAP.length) {
+        empty.style.display = 'block';
+        total.textContent = '🪙 0';
+        count.textContent = '';
+        return;
+    }
+
+    empty.style.display = 'none';
+
+    let totalValue = 0;
+    let itemCount = 0;
+    const selectedMap = new Map();
+    createSelectedItems.forEach(it => selectedMap.set(it.name.toLowerCase(), it));
+
+    myInventoryRAP.forEach(it => {
+        const key = it.name.toLowerCase();
+        const sel = selectedMap.get(key);
+        const qty = sel ? sel.qty : 0;
+        totalValue += (it.rap || 0) * qty;
+        itemCount += qty;
+
+        const card = document.createElement('div');
+        card.className = 'inv-item';
+        card.innerHTML = `
+          <div class="inv-name">${escapeHtml(it.name)}</div>
+          <div class="inv-qty">🪙 ${fmt(it.rap || 0)} · Masz: ${fmt(it.qty)}</div>
+          <div class="inv-actions">
+            <button class="inv-btn" data-act="minus" data-key="${escapeHtml(key)}">−</button>
+            <span class="inv-sel" id="sel-${escapeHtml(key)}">${qty}</span>
+            <button class="inv-btn" data-act="plus" data-key="${escapeHtml(key)}">+</button>
+          </div>
+        `;
+
+        card.querySelector('[data-act="minus"]').addEventListener('click', () => {
+            const cur = createSelectedItems.find(x => x.name.toLowerCase() === key);
+            if (!cur) return;
+            if (cur.qty <= 1) {
+                createSelectedItems = createSelectedItems.filter(x => x.name.toLowerCase() !== key);
+            } else {
+                cur.qty--;
+            }
+            renderCreateItemPicker();
+        });
+
+        card.querySelector('[data-act="plus"]').addEventListener('click', () => {
+            const avail = it.qty;
+            const cur = createSelectedItems.find(x => x.name.toLowerCase() === key);
+            const curQty = cur ? cur.qty : 0;
+            if (curQty >= avail) return;
+            if (cur) cur.qty++;
+            else createSelectedItems.push({ name: it.name, qty: 1, rap: it.rap || 0 });
+            renderCreateItemPicker();
+        });
+
+        grid.appendChild(card);
+    });
+
+    total.textContent = '🪙 ' + fmt(totalValue);
+    count.textContent = `(${itemCount} szt.)`;
+}
+
 window.submitCreateGame = () => {
-    const bet = parseInt(document.getElementById('modal-bet').value);
-    if (!bet || bet < 1) return alert('Podaj poprawny zakład!');
-    if (bet > balance)   return alert('Nie masz tyle monet!');
-    socket.emit('createGame', { bet, side: currentSide });
+    const items = createSelectedItems.map(it => ({
+        name: it.name,
+        qty: it.qty,
+        rap: it.rap || 0
+    }));
+    if (!items.length) return alert('Wybierz przynajmniej 1 item do zakładu!');
+    socket.emit('createGame', { items, side: currentSide });
     closeCreateModal();
 };
 
@@ -155,13 +244,19 @@ socket.on('gamesList', (games) => {
         const badgeClass = g.creator.side === 'heads' ? 'heads' : 'tails';
         const badgeLetter = g.creator.side === 'heads' ? 'H' : 'T';
 
+        // Generuj podgląd itemów
+        const itemsHtml = (g.items || []).slice(0, 3).map(it =>
+            `<span class="gc-item-chip">${escapeHtml(it.name)}${it.qty > 1 ? ' x' + it.qty : ''}</span>`
+        ).join('');
+        const moreHtml = (g.items || []).length > 3 ? `<span class="gc-item-chip muted">+${(g.items||[]).length - 3}</span>` : '';
+
         const rightHtml = isMe
             ? `<div class="gc-actions">
                 <div class="gc-waiting-label"><div class="dot-pulse"></div>Czekam...</div>
                 <button class="btn-cancel" onclick="cancelGame('${g.id}')">Anuluj</button>
                </div>`
             : `<div class="gc-actions">
-                <button class="btn-join" onclick="joinGame('${g.id}')">Join</button>
+                <button class="btn-join" onclick="openJoinGameModal('${g.id}')">Join</button>
                 <button class="btn-view" onclick="openViewModal('${g.id}')">View</button>
                </div>`;
 
@@ -179,7 +274,8 @@ socket.on('gamesList', (games) => {
           <div class="gc-center">
             <span class="gc-vs">Vs</span>
             <span class="gc-gameid"># ${g.id}</span>
-            <span class="gc-bet">🪙 ${fmt(g.bet)}</span>
+            <span class="gc-bet">🪙 ${fmt(g.totalValue)}</span>
+            <div class="gc-items-row">${itemsHtml}${moreHtml}</div>
             <div class="gc-bar-wrap"><div class="gc-bar-fill"></div></div>
           </div>
 
@@ -197,10 +293,108 @@ socket.on('gamesList', (games) => {
     });
 });
 
-window.joinGame   = (id) => socket.emit('joinGame', { gameId: id });
 window.cancelGame = (id) => socket.emit('cancelGame', { gameId: id });
 
-// ── VIEW MODAL (bloxypot style) ───────────────────────────────
+// ── JOIN GAME MODAL (item picker) ────────────────────────────
+let joinGameTarget = null;
+
+window.openJoinGameModal = async (gameId) => {
+    joinGameTarget = lobbyGames.find(x => x.id === gameId);
+    if (!joinGameTarget) return;
+    joinSelectedItems = [];
+    await loadInventoryRAP();
+    renderJoinItemPicker();
+    document.getElementById('join-modal').style.display = 'flex';
+};
+
+window.closeJoinModal = () => {
+    document.getElementById('join-modal').style.display = 'none';
+    joinGameTarget = null;
+};
+
+function renderJoinItemPicker() {
+    const grid = document.getElementById('join-items-grid');
+    const empty = document.getElementById('join-items-empty');
+    const total = document.getElementById('join-total');
+    const minVal = joinGameTarget ? joinGameTarget.totalValue * 0.5 : 0;
+
+    grid.innerHTML = '';
+
+    if (!myInventoryRAP.length) {
+        empty.style.display = 'block';
+        total.textContent = '🪙 0';
+        return;
+    }
+
+    empty.style.display = 'none';
+
+    let totalValue = 0;
+    const selectedMap = new Map();
+    joinSelectedItems.forEach(it => selectedMap.set(it.name.toLowerCase(), it));
+
+    const gameValueHtml = `<div class="modal-info" style="margin-top:0;margin-bottom:12px;font-size:.82rem">
+      Twój zakład musi być wart ≥ 🪙 ${fmt(minVal)} (50% stawki twórcy: 🪙 ${fmt(joinGameTarget.totalValue)})
+    </div>`;
+    document.getElementById('join-min-info').innerHTML = gameValueHtml;
+
+    myInventoryRAP.forEach(it => {
+        const key = it.name.toLowerCase();
+        const sel = selectedMap.get(key);
+        const qty = sel ? sel.qty : 0;
+        totalValue += (it.rap || 0) * qty;
+
+        const card = document.createElement('div');
+        card.className = 'inv-item';
+        card.innerHTML = `
+          <div class="inv-name">${escapeHtml(it.name)}</div>
+          <div class="inv-qty">🪙 ${fmt(it.rap || 0)} · Masz: ${fmt(it.qty)}</div>
+          <div class="inv-actions">
+            <button class="inv-btn" data-act="minus" data-key="${escapeHtml(key)}">−</button>
+            <span class="inv-sel" id="jsel-${escapeHtml(key)}">${qty}</span>
+            <button class="inv-btn" data-act="plus" data-key="${escapeHtml(key)}">+</button>
+          </div>
+        `;
+
+        card.querySelector('[data-act="minus"]').addEventListener('click', () => {
+            const cur = joinSelectedItems.find(x => x.name.toLowerCase() === key);
+            if (!cur) return;
+            if (cur.qty <= 1) {
+                joinSelectedItems = joinSelectedItems.filter(x => x.name.toLowerCase() !== key);
+            } else {
+                cur.qty--;
+            }
+            renderJoinItemPicker();
+        });
+
+        card.querySelector('[data-act="plus"]').addEventListener('click', () => {
+            const avail = it.qty;
+            const cur = joinSelectedItems.find(x => x.name.toLowerCase() === key);
+            const curQty = cur ? cur.qty : 0;
+            if (curQty >= avail) return;
+            if (cur) cur.qty++;
+            else joinSelectedItems.push({ name: it.name, qty: 1, rap: it.rap || 0 });
+            renderJoinItemPicker();
+        });
+
+        grid.appendChild(card);
+    });
+
+    total.textContent = '🪙 ' + fmt(totalValue);
+}
+
+window.submitJoinGame = () => {
+    if (!joinGameTarget) return;
+    const items = joinSelectedItems.map(it => ({
+        name: it.name,
+        qty: it.qty,
+        rap: it.rap || 0
+    }));
+    if (!items.length) return alert('Wybierz przynajmniej 1 item do zakładu!');
+    socket.emit('joinGame', { gameId: joinGameTarget.id, items });
+    closeJoinModal();
+};
+
+// ── VIEW MODAL ───────────────────────────────────────────────
 window.openViewModal = function(gameId) {
     const g = lobbyGames.find(x => x.id === gameId);
     if (!g) return;
@@ -218,14 +412,25 @@ window.openViewModal = function(gameId) {
     // Joiner (waiting)
     document.getElementById('view-joiner-name').textContent = 'Waiting...';
 
-    // Game ID & bet
+    // Game ID & value
     document.getElementById('view-gameid').textContent = `# ${g.id}`;
-    document.getElementById('view-creator-coins').textContent = `🪙 ${fmt(g.bet)}`;
+    document.getElementById('view-creator-coins').textContent = `🪙 ${fmt(g.totalValue)}`;
     document.getElementById('view-joiner-coins').textContent  = `🪙 0`;
-    document.getElementById('view-creator-pct').textContent   = '100.00%';
-    document.getElementById('view-joiner-pct').textContent    = '0.00%';
+
+    // Items of creator
+    const creatorItemsEl = document.getElementById('view-creator-items');
+    creatorItemsEl.innerHTML = (g.items || []).map(it =>
+        `<span class="gc-item-chip">${escapeHtml(it.name)}${it.qty > 1 ? ' x' + it.qty : ''}</span>`
+    ).join('') || '—';
+
+    // Hide joiner items (none yet)
+    document.getElementById('view-joiner-items-row').style.display = 'none';
+
+    // Pot info
+    document.getElementById('view-pot-info').style.display = 'none';
+
+    // Progress bar
     document.getElementById('view-bar-fill').style.width = '100%';
-    document.getElementById('view-item-val').textContent = `🪙 ${fmt(g.bet)}`;
 
     // Join button
     const joinBtn = document.getElementById('view-join-btn');
@@ -243,7 +448,8 @@ window.closeViewModal = () => {
 
 window.joinFromView = () => {
     if (!viewingGameId) return;
-    socket.emit('joinGame', { gameId: viewingGameId });
+    // Zamiast bezpośredniego join, otwórz join modal
+    openJoinGameModal(viewingGameId);
     closeViewModal();
 };
 
@@ -260,8 +466,9 @@ socket.on('gameResult', (data) => {
     fillResultPlayers(data.creator, data.joiner, youAreCreator);
     setTimeout(() => {
         setCoinFinal(data.winningSide);
+        const prizeVal = data.prize || 0;
         showFlipBanner(
-            data.won ? `🏆 Wygrałeś! +${fmt(data.prize)} monet!` : `💸 Przegrałeś! -${fmt(data.bet)} monet`,
+            data.won ? `🏆 Wygrałeś! +${fmt(prizeVal)} 🪙` : `💸 Przegrałeś! -${fmt(data.totalValue || prizeVal)} 🪙`,
             data.won ? 'win' : 'lose'
         );
     }, FLIP_MS);
@@ -327,8 +534,8 @@ socket.on('historyData', (records) => {
     let wins=0, losses=0, profit=0;
     records.forEach(r => {
         const me = r.creator.username === currentUsername ? r.creator : r.joiner;
-        if (me.won) { wins++; profit += r.bet; }
-        else         { losses++; profit -= r.bet; }
+        if (me.won) { wins++; profit += (r.totalValue || 0); }
+        else         { losses++; profit -= (r.totalValue || 0); }
     });
     const sign = profit >= 0 ? '+' : '';
     historySummary.innerHTML = `
@@ -350,7 +557,7 @@ socket.on('historyData', (records) => {
               <span style="color:var(--muted);font-size:.7rem">vs</span>
               <span class="${opp.side==='heads'?'side-heads':'side-tails'}">${sideLabel(opp.side)}</span>
             </div>
-            <span class="ht-bet">🪙 ${fmt(r.bet)}</span>
+            <span class="ht-bet">🪙 ${fmt(r.totalValue || 0)}</span>
             <span class="ht-result ${won?'won':'lost'}">${won?'🏆 Wygrana':'💸 Przegrana'}</span>
         </div>`;
     }).join('');
@@ -366,7 +573,7 @@ socket.on('historyData', (records) => {
 // ── DEPOZYT: PET SEARCH ──────────────────────────────────────
 let petSearchCache = [];
 let petSearchTimer = null;
-let selectedDepositItems = []; // [{ name, category, rap, qty }]
+let selectedDepositItems = [];
 
 window.openDepositModal = () => {
     document.getElementById('pet-search').value = '';
@@ -376,7 +583,6 @@ window.openDepositModal = () => {
     document.getElementById('pet-search-results').innerHTML = '';
     document.getElementById('pet-search-results').classList.remove('open');
     document.getElementById('deposit-modal').style.display = 'flex';
-    // Wczytaj pety w tle
     searchPets('', 'all');
 };
 
@@ -385,7 +591,6 @@ window.closeDepositModal = () => {
     document.getElementById('pet-search-results').classList.remove('open');
 };
 
-// Wyszukiwanie petów
 async function searchPets(q, category) {
     try {
         const params = new URLSearchParams({ q, limit: '30' });
@@ -450,7 +655,6 @@ function addDepositItem(name, category, rap) {
         selectedDepositItems.push({ name, category, rap, qty: 1 });
     }
     renderDepositItems();
-    // Odśwież wyniki żeby przycisk się zaktualizował
     renderPetResults(petSearchCache);
 }
 
@@ -522,7 +726,6 @@ function renderDepositItems() {
     totalVal.textContent = '🪙 ' + fmt(total);
 }
 
-// Eventy dla wyszukiwarki petów
 document.addEventListener('DOMContentLoaded', () => {
     const searchInput = document.getElementById('pet-search');
     if (!searchInput) return;
@@ -549,7 +752,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 200);
     });
     
-    // Filtry kategorii
     document.querySelectorAll('.pet-filter').forEach(btn => {
         btn.addEventListener('click', () => {
             document.querySelectorAll('.pet-filter').forEach(x => x.classList.remove('active'));
@@ -718,11 +920,10 @@ function renderRequests() {
 }
 
 // zamknij modale klikając tło
-['create-modal','view-modal','result-modal','deposit-modal','withdraw-modal'].forEach(id => {
+['create-modal','view-modal','result-modal','deposit-modal','withdraw-modal','join-modal'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener('click', function(e) {
         if (e.target === this) this.style.display = 'none';
     });
 });
-

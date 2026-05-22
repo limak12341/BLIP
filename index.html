@@ -25,17 +25,17 @@
       <button onclick="checkVerification()" class="flip-btn" style="background:#2ed573;margin-top:12px">2. Sprawdź →</button>
     </div>
     <p id="login-error" class="login-error"></p>
-    <p class="login-note" style="margin-top:16px">Nowe konto startuje z 🪙 1 000 monet</p>
   </div>
 </div>
 
-<!-- ── MODAL: STWÓRZ GRĘ ─────────────────────────── -->
+<!-- ── MODAL: STWÓRZ GRĘ (itemy z inventarza) ────── -->
 <div id="create-modal" class="modal-overlay">
-  <div class="modal">
+  <div class="modal modal-wide">
     <div class="modal-header">
       <span class="modal-title">⚡ Stwórz grę PVP</span>
       <button class="modal-close" onclick="closeCreateModal()">✕</button>
     </div>
+
     <label class="form-label">Twoja strona monety</label>
     <div class="side-selector">
       <button class="choice-btn heads-btn active" id="modal-heads" onclick="selectModalSide('heads')">
@@ -45,24 +45,21 @@
         <span class="choice-icon">💧</span>RESZKA
       </button>
     </div>
-    <label class="form-label" style="margin-top:20px">Kwota zakładu</label>
-    <div class="bet-input-wrap">
-      <span class="bet-prefix">🪙</span>
-      <input type="number" id="modal-bet" value="50" min="1" oninput="updateTotal()">
+
+    <label class="form-label" style="margin-top:16px">Wybierz itemy do zakładu (z Twojego inventarza)</label>
+    <div id="create-items-grid" class="inv-grid" style="max-height:220px;overflow-y:auto"></div>
+    <div id="create-items-empty" class="empty-mini" style="display:none">Brak itemów na stronie. Najpierw zdepozytuj coś!</div>
+
+    <div class="modal-info" style="margin-top:12px">
+      Łączna wartość zakładu: <strong id="create-total">🪙 0</strong>
+      <span id="create-item-count" style="margin-left:8px;color:var(--muted);font-size:.8rem"></span>
     </div>
-    <div class="bet-quick" style="margin-top:8px">
-      <button class="quick-btn" onclick="setModalBet(10)">10</button>
-      <button class="quick-btn" onclick="setModalBet(50)">50</button>
-      <button class="quick-btn" onclick="setModalBet(100)">100</button>
-      <button class="quick-btn" onclick="setModalBet(500)">500</button>
-      <button class="quick-btn" onclick="setModalBet(balance)">MAX</button>
-    </div>
-    <div class="modal-info">Wygrany zabiera <strong id="modal-total">🪙 100</strong></div>
-    <button class="flip-btn" onclick="submitCreateGame()" style="margin-top:20px">Stwórz grę</button>
+
+    <button class="flip-btn" onclick="submitCreateGame()" style="margin-top:16px">⚡ Stwórz grę</button>
   </div>
 </div>
 
-<!-- ── MODAL: VIEW GRY (bloxypot style) ──────────── -->
+<!-- ── MODAL: VIEW GRY (itemy) ───────────────────── -->
 <div id="view-modal" class="modal-overlay">
   <div class="modal view-modal-inner">
     <button class="modal-close" onclick="closeViewModal()" style="position:absolute;top:16px;right:16px">✕</button>
@@ -92,15 +89,13 @@
       </div>
     </div>
 
-    <!-- AMOUNTS ROW -->
+    <!-- VALUE ROW -->
     <div class="view-amounts">
       <div class="view-amount-block">
         <span class="view-coins" id="view-creator-coins">🪙 0</span>
-        <span class="view-pct" id="view-creator-pct">50.00%</span>
       </div>
       <div class="view-amount-block" style="text-align:right">
         <span class="view-coins" id="view-joiner-coins">🪙 0</span>
-        <span class="view-pct" id="view-joiner-pct">50.00%</span>
       </div>
     </div>
 
@@ -109,15 +104,25 @@
       <div class="view-bar-fill" id="view-bar-fill"></div>
     </div>
 
-    <!-- ITEM ROW -->
+    <!-- ITEMS ROW (creator's items) -->
     <div class="view-item-row">
-      <div class="view-item" id="view-item-box">
-        <div class="view-item-icon">🪙</div>
-        <div class="view-item-info">
-          <span id="view-item-label">Zakład</span>
-          <span class="view-item-val" id="view-item-val">🪙 0</span>
-        </div>
+      <div class="view-item-info" style="width:100%">
+        <span style="font-size:.75rem;color:var(--muted);margin-bottom:6px">🏆 Zakład twórcy:</span>
+        <div id="view-creator-items" class="view-items-list"></div>
       </div>
+    </div>
+
+    <!-- ITEMS ROW (joiner's items - when joined) -->
+    <div class="view-item-row" id="view-joiner-items-row" style="display:none">
+      <div class="view-item-info" style="width:100%">
+        <span style="font-size:.75rem;color:var(--muted);margin-bottom:6px">🔥 Zakład przeciwnika:</span>
+        <div id="view-joiner-items" class="view-items-list"></div>
+      </div>
+    </div>
+
+    <!-- TOTAL POT -->
+    <div class="modal-info" id="view-pot-info" style="display:none">
+      Pula: <strong id="view-pot-value">🪙 0</strong>
     </div>
 
     <!-- JOIN BUTTON (jeśli nie moja gra) -->
@@ -151,6 +156,27 @@
     </div>
     <div id="res-banner" class="res-banner"></div>
     <button class="flip-btn" onclick="closeResultModal()" id="res-close-btn" style="display:none;margin-top:16px">Zamknij</button>
+  </div>
+</div>
+
+<!-- ── MODAL: JOIN GAME (item picker) ─────────────── -->
+<div id="join-modal" class="modal-overlay">
+  <div class="modal modal-wide">
+    <div class="modal-header">
+      <span class="modal-title">🔥 Dołącz do gry</span>
+      <button class="modal-close" onclick="closeJoinModal()">✕</button>
+    </div>
+
+    <label class="form-label">Wybierz itemy do zakładu</label>
+    <div id="join-min-info"></div>
+    <div id="join-items-grid" class="inv-grid" style="max-height:260px;overflow-y:auto"></div>
+    <div id="join-items-empty" class="empty-mini" style="display:none">Brak itemów na stronie.</div>
+
+    <div class="modal-info" style="margin-top:12px">
+      Łączna wartość: <strong id="join-total">🪙 0</strong>
+    </div>
+
+    <button class="flip-btn" onclick="submitJoinGame()" style="margin-top:16px">🔥 Dołącz do gry</button>
   </div>
 </div>
 
