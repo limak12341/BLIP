@@ -80,7 +80,13 @@
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
     }[m]));
   }
-  function fmt(n) { return Number(n).toLocaleString('pl-PL'); }
+  function fmt(n) {
+    const v = Number(n);
+    if (v < 1000) return String(v);
+    if (v < 1_000_000) return (v / 1000).toFixed(v < 10_000 ? 1 : 0) + 'K';
+    if (v < 1_000_000_000) return (v / 1_000_000).toFixed(v < 10_000_000 ? 1 : 0) + 'M';
+    return (v / 1_000_000_000).toFixed(v < 10_000_000_000 ? 1 : 0) + 'B';
+  }
   function timeAgo(ts) {
     const s = Math.floor((Date.now() - ts) / 1000);
     if (s < 60) return s + 's temu';

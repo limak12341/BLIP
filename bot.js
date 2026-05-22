@@ -139,8 +139,7 @@ async function processPendingDeposits() {
             await postServerApi('/api/bot/update-deposit', {
                 requestId:  req._id,
                 status:     'valued',  // czeka na admina
-                totalValue,
-                adminNote:  `Bot: łączna wartość RAP = 🪙 ${totalValue.toLocaleString()}`,
+                totalValue,                    adminNote:  `Bot: łączna wartość RAP = 🪙 ${fmtNumber(totalValue)}`,
             });
 
             // Wyślij wiadomość użytkownikowi na Roblox (opcjonalne)
@@ -149,7 +148,7 @@ async function processPendingDeposits() {
                     req.robloxUserId,
                     'BFLIP — Depozyt otrzymany',
                     `Cześć ${req.username}!\n\nTwój depozyt został zarejestrowany.\n` +
-                    `Wycena RAP: ${totalValue.toLocaleString()} monet.\n\n` +
+                    `Wycena RAP: ${fmtNumber(totalValue)} monet.\n\n` +
                     `Admin musi potwierdzić otrzymanie trade'a — saldo zostanie dodane po akceptacji.\n\n` +
                     `Bot BFLIP`
                 );
@@ -159,6 +158,14 @@ async function processPendingDeposits() {
             console.error(`[BOT] Błąd przy ${req._id}:`, e.message);
         }
     }
+}
+
+function fmtNumber(n) {
+    const v = Number(n);
+    if (v < 1000) return String(v);
+    if (v < 1_000_000) return (v / 1000).toFixed(v < 10_000 ? 1 : 0) + 'K';
+    if (v < 1_000_000_000) return (v / 1_000_000).toFixed(v < 10_000_000 ? 1 : 0) + 'M';
+    return (v / 1_000_000_000).toFixed(v < 10_000_000_000 ? 1 : 0) + 'B';
 }
 
 // ── START ─────────────────────────────────────────────────────

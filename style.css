@@ -763,6 +763,28 @@ body::before {
 .pet-add-btn:disabled { background: rgba(46,213,115,.12); border-color: rgba(46,213,115,.3); color: var(--green); cursor: default; }
 .pet-empty { padding: 20px; text-align: center; color: var(--muted); font-size: .85rem; }
 
+/* Przycisk "Gotowe" w wynikach wyszukiwania */
+.pet-results-done {
+  position: sticky;
+  bottom: 0;
+  padding: 10px 14px;
+  background: linear-gradient(0deg, var(--surf) 60%, transparent);
+}
+.pet-done-btn {
+  width: 100%;
+  padding: 10px;
+  background: var(--purple);
+  border: none;
+  border-radius: 10px;
+  color: #fff;
+  font-size: .85rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: .15s;
+  font-family: inherit;
+}
+.pet-done-btn:hover { background: #9b7eff; }
+
 /* ── DEPOSIT ITEMS LIST ─────────────────────────── */
 .dep-items-list { display: flex; flex-direction: column; gap: 8px; }
 .dep-item-row {

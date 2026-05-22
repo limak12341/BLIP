@@ -38,7 +38,13 @@ const inventoryEmptyEl = document.getElementById('inventory-empty');
 const requestsListEl   = document.getElementById('requests-list');
 const requestsEmptyEl  = document.getElementById('requests-empty');
 
-function fmt(n) { return Number(n).toLocaleString('pl-PL'); }
+function fmt(n) {
+    const v = Number(n);
+    if (v < 1000) return String(v);
+    if (v < 1_000_000) return (v / 1000).toFixed(v < 10_000 ? 1 : 0) + 'K';
+    if (v < 1_000_000_000) return (v / 1_000_000).toFixed(v < 10_000_000 ? 1 : 0) + 'M';
+    return (v / 1_000_000_000).toFixed(v < 10_000_000_000 ? 1 : 0) + 'B';
+}
 function sideLabel(s) { return s === 'heads' ? 'ORZEŁ' : 'RESZKA'; }
 function timeAgo(ts) {
     const s = Math.floor((Date.now() - ts) / 1000);
@@ -634,7 +640,7 @@ function renderPetResults(pets) {
             </div>
           </div>
           <button class="pet-add-btn" ${alreadyAdded ? 'disabled' : ''}>
-            ${alreadyAdded ? '✓' : '+'}
+            ${alreadyAdded ? '✓ Dodano' : '+ Dodaj'}
           </button>
         `;
         
@@ -645,7 +651,17 @@ function renderPetResults(pets) {
         
         el.appendChild(card);
     });
+    
+    // Przycisk "Gotowe" na dole wyników
+    const doneWrap = document.createElement('div');
+    doneWrap.className = 'pet-results-done';
+    doneWrap.innerHTML = `<button class="pet-done-btn" onclick="closePetResults()">✓ Gotowe</button>`;
+    el.appendChild(doneWrap);
 }
+
+window.closePetResults = function() {
+    document.getElementById('pet-search-results').classList.remove('open');
+};
 
 function addDepositItem(name, category, rap) {
     const existing = selectedDepositItems.find(x => x.name === name);
@@ -746,10 +762,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
-    searchInput.addEventListener('blur', () => {
-        setTimeout(() => {
+    // Zamykanie wyników po kliknięciu poza polem wyszukiwania
+    document.addEventListener('click', (e) => {
+        const wrap = document.querySelector('.pet-search-wrap');
+        if (wrap && !wrap.contains(e.target)) {
             document.getElementById('pet-search-results').classList.remove('open');
-        }, 200);
+        }
     });
     
     document.querySelectorAll('.pet-filter').forEach(btn => {
