@@ -963,6 +963,86 @@ app.get('/api/admin/players/:id/warnings', requireAdmin, (req, res) => {
     });
 });
 
+// ── PROFIL PUBLICZNY ──────────────────────────────────────────
+app.get('/api/profile/public/:userId', async (req, res) => {
+    const userId = safeStr(req.params.userId);
+    if (!userId) return res.status(400).json({ message: 'Brak ID użytkownika.' });
+
+    db.findOne({ _id: userId }, (err, user) => {
+        if (err || !user) return res.status(404).json({ message: 'Nie znaleziono użytkownika.' });
+
+        getHistory(userId, (records) => {
+            let wins = 0, losses = 0, profit = 0, totalWagered = 0;
+            records.forEach(r => {
+                const me = r.creator?.robloxId === userId ? r.creator : r.joiner;
+                if (!me) return;
+                const myBet = r.creator?.robloxId === userId ? (r.totalValue || 0) : (r.joinValue || 0);
+                totalWagered += myBet;
+                if (me.won) { wins++; profit += (r.totalValue || 0); }
+                else { losses++; profit -= (r.totalValue || 0); }
+            });
+
+            const LEVEL_XP = 10000;
+            const level = Math.min(99, Math.floor(totalWagered / LEVEL_XP));
+            const levelNames = ['Basic','Enthusiast','Wagered','Wagered+','Maxed Wagered++'];
+            let levelName = levelNames[0];
+            if (level >= 99) levelName = levelNames[4];
+            else if (level >= 51) levelName = levelNames[3];
+            else if (level >= 16) levelName = levelNames[2];
+            else if (level >= 1) levelName = levelNames[1];
+
+            // Pobierz liczbę ostrzeżeń
+            warningsDb.count({ userId }, (err, warnCount) => {
+                res.json({
+                    username: user.username || 'Unknown',
+                    avatarUrl: user.avatarUrl || '',
+                    role: user.role || '',
+                    balance: user.balance || 0,
+                    total: records.length,
+                    wins,
+                    losses,
+                    profit,
+                    totalWagered,
+                    level,
+                    levelName,
+                    warnings: warnCount || 0,
+                    createdAt: user.createdAt || 0
+                });
+            });
+        });
+    });
+});
+
+// ── TIP ───────────────────────────────────────────────────────
+app.post('/api/profile/:userId/tip', requireLogin, (req, res) => {
+    const targetId = safeStr(req.params.userId);
+    const amount = parseInt(req.body.amount);
+
+    if (!targetId) return res.status(400).json({ message: 'Brak ID użytkownika.' });
+    if (targetId === req.session.robloxId) return res.status(400).json({ message: 'Nie możesz wysłać tipa samemu sobie.' });
+    if (isNaN(amount) || amount < 1) return res.status(400).json({ message: 'Podaj prawidłową kwotę (minimum 1 🪙).' });
+
+    db.findOne({ _id: req.session.robloxId }, (err, sender) => {
+        if (err || !sender) return res.status(404).json({ message: 'Nie znaleziono nadawcy.' });
+        const senderBalance = sender.balance || 0;
+        if (senderBalance < amount) return res.status(400).json({ message: `Masz tylko 🪙 ${fmt(senderBalance)}.` });
+
+        db.findOne({ _id: targetId }, (err, target) => {
+            if (err || !target) return res.status(404).json({ message: 'Nie znaleziono docelowego użytkownika.' });
+
+            // Odejmij od nadawcy
+            db.update({ _id: req.session.robloxId }, { $set: { balance: senderBalance - amount } }, {}, () => {
+                // Dodaj do odbiorcy
+                const targetBalance = target.balance || 0;
+                db.update({ _id: targetId }, { $set: { balance: targetBalance + amount } }, {}, () => {
+                    addLog('tip', `${req.session.username} wysłał 🪙 ${amount} do ${target.username || targetId}`, req);
+                    res.json({ ok: true, message: `Wysłano 🪙 ${fmt(amount)} do ${target.username || 'użytkownika'}!` });
+                });
+            });
+        });
+    });
+});
+
 // ── ADMIN: LOGS ──────────────────────────────────────────
 app.get('/api/admin/logs', requireAdmin, (req, res) => {
     const type = safeStr(req.query.type || '');

@@ -80,6 +80,173 @@ async function apiJson(url, opts) {
 // ── SESJA ─────────────────────────────────────────────────────
 socket.emit('checkSession');
 
+window.openProfileModal = async function(userId, username) {
+    const modal = document.getElementById('profile-modal');
+    const content = document.getElementById('profile-modal-content');
+    modal.style.display = 'flex';
+    content.innerHTML = '<div class="pm-loading">Ładowanie profilu...</div>';
+
+    try {
+        const data = await apiJson('/api/profile/public/' + encodeURIComponent(userId));
+        let html = `<div class="pm-header">
+            <div class="pm-avatar-wrap">
+                ${data.avatarUrl ? `<img class="pm-avatar" src="${data.avatarUrl}" alt="">` : `<div class="pm-avatar pm-avatar-empty">?</div>`}
+                <div class="pm-role-badge">${data.role ? roleBadgeHtml(data.role) : ''}</div>
+            </div>
+            <div class="pm-user-info">
+                <span class="pm-username">${escapeHtml(data.username)}</span>
+                <div class="pm-level-row">
+                    <span class="pm-level-badge ${data.level >= 99 ? 'lvl-mega' : data.level >= 51 ? 'lvl-ultra' : data.level >= 16 ? 'lvl-pro' : data.level >= 1 ? 'lvl-enth' : ''}">
+                        ⭐ Lv. ${data.level} — ${data.levelName}
+                    </span>
+                </div>
+            </div>
+        </div>`;
+
+        // Stats grid
+        const profitClass = data.profit >= 0 ? 'green' : 'red';
+        const profitSign = data.profit >= 0 ? '+' : '';
+        html += `<div class="pm-stats-grid">
+            <div class="pm-stat">
+                <span class="pm-stat-val gold">${data.total}</span>
+                <span class="pm-stat-label">Gier</span>
+            </div>
+            <div class="pm-stat">
+                <span class="pm-stat-val green">${data.wins}</span>
+                <span class="pm-stat-label">Wygrane</span>
+            </div>
+            <div class="pm-stat">
+                <span class="pm-stat-val red">${data.losses}</span>
+                <span class="pm-stat-label">Przegrane</span>
+            </div>
+            <div class="pm-stat">
+                <span class="pm-stat-val">${data.total > 0 ? Math.round((data.wins / data.total) * 100) : 0}%</span>
+                <span class="pm-stat-label">Win rate</span>
+            </div>
+        </div>`;
+
+        // Profit row
+        html += `<div class="pm-profit-row ${profitClass}">
+            <span class="pm-profit-label">Zysk / Strata</span>
+            <span class="pm-profit-val">${profitSign}🪙 ${fmt(Math.abs(data.profit))}</span>
+        </div>`;
+
+        // Balance + wagered + warnings
+        html += `<div class="pm-details">
+            <div class="pm-detail-item">
+                <span class="pm-detail-icon">💰</span>
+                <span class="pm-detail-label">Saldo</span>
+                <span class="pm-detail-val gold">🪙 ${fmt(data.balance)}</span>
+            </div>
+            <div class="pm-detail-item">
+                <span class="pm-detail-icon">📊</span>
+                <span class="pm-detail-label">Total Wagered</span>
+                <span class="pm-detail-val">🪙 ${fmt(data.totalWagered)}</span>
+            </div>
+            <div class="pm-detail-item">
+                <span class="pm-detail-icon">⚠️</span>
+                <span class="pm-detail-label">Ostrzeżenia</span>
+                <span class="pm-detail-val ${data.warnings > 0 ? 'red' : ''}">${data.warnings}</span>
+            </div>
+            ${data.createdAt ? `<div class="pm-detail-item">
+                <span class="pm-detail-icon">📅</span>
+                <span class="pm-detail-label">Gracz od</span>
+                <span class="pm-detail-val">${new Date(data.createdAt).toLocaleDateString('pl-PL')}</span>
+            </div>` : ''}
+        </div>`;
+
+        // Tip section - only if logged in and not yourself
+        if (currentUserId && currentUserId !== userId) {
+            html += `<div class="pm-tip-section">
+                <div class="pm-tip-title">💸 Wyślij tip</div>
+                <div class="pm-tip-input-wrap">
+                    <input class="pm-tip-input" id="pm-tip-input" type="number" min="1" placeholder="Kwota 🪙" autocomplete="off">
+                    <button class="pm-tip-btn" onclick="sendTip('${userId}')">📤 Wyślij</button>
+                </div>
+                <div id="pm-tip-message" class="pm-tip-message"></div>
+            </div>`;
+        }
+
+        content.innerHTML = html;
+    } catch (e) {
+        content.innerHTML = `<div class="pm-error">⚠️ Błąd ładowania profilu: ${escapeHtml(e.message)}</div>`;
+    }
+};
+
+window.closeProfileModal = function() {
+    document.getElementById('profile-modal').style.display = 'none';
+};
+
+window.sendTip = async function(userId) {
+    const input = document.getElementById('pm-tip-input');
+    const msgEl = document.getElementById('pm-tip-message');
+    const amount = parseInt(input.value);
+    if (!amount || amount < 1) {
+        msgEl.textContent = 'Podaj prawidłową kwotę!';
+        msgEl.className = 'pm-tip-message error';
+        return;
+    }
+    const btn = document.querySelector('.pm-tip-btn');
+    btn.disabled = true;
+    btn.textContent = 'Wysyłanie...';
+    try {
+        const data = await apiJson('/api/profile/' + encodeURIComponent(userId) + '/tip', {
+            method: 'POST',
+            body: JSON.stringify({ amount })
+        });
+        if (data.ok) {
+            msgEl.textContent = '✅ ' + data.message;
+            msgEl.className = 'pm-tip-message success';
+            input.value = '';
+            // Odśwież profil
+            openProfileModal(userId);
+        }
+    } catch (e) {
+        msgEl.textContent = '❌ ' + e.message;
+        msgEl.className = 'pm-tip-message error';
+    }
+    btn.disabled = false;
+    btn.textContent = '📤 Wyślij';
+};
+
+// Click handler for chat usernames - open profile
+// Click handler for usernames - open profile
+document.addEventListener('click', function(e) {
+    // Chat usernames
+    const usernameEl = e.target.closest('.chat-msg-username');
+    if (usernameEl) {
+        const username = usernameEl.textContent.trim();
+        const msg = chatMessages.find(m => m.username === username);
+        if (msg && msg.userId && msg.userId !== 'system') {
+            e.preventDefault();
+            openProfileModal(msg.userId, msg.username);
+        }
+        return;
+    }
+    
+    // Leaderboard usernames
+    const lbNameEl = e.target.closest('.lb-player-col') || e.target.closest('.lb-name');
+    if (lbNameEl) {
+        const lbRow = lbNameEl.closest('.lb-row');
+        if (lbRow) {
+            const nameEl = lbRow.querySelector('.lb-name');
+            const rankEl = lbRow.querySelector('.lb-rank');
+            if (nameEl) {
+                const username = nameEl.textContent.trim();
+                // Fetch leaderboard data to get userId
+                // We need to get the robloxId from the leaderboard data
+                const lbData = window._lastLeaderboard || [];
+                const player = lbData.find(p => p.username === username);
+                if (player && player.robloxId) {
+                    e.preventDefault();
+                    openProfileModal(player.robloxId, player.username);
+                }
+            }
+        }
+        return;
+    }
+});
+
 socket.on('sessionOk', (data) => {
     loginOverlay.style.display = 'none';
     currentUsername = data.username;
@@ -171,12 +338,16 @@ document.addEventListener('click', function(e) {
 });
 
 // ── LEADERBOARD ────────────────────────────────────────────────
+let _lastLeaderboard = [];
+window._lastLeaderboard = _lastLeaderboard;
+
 window.fetchLeaderboard = async function() {
     const lbList = document.getElementById('lb-list');
     if (!lbList) return;
     try {
         const data = await apiJson('/api/leaderboard');
         const players = data.leaderboard || [];
+        _lastLeaderboard = players;
         if (!players.length) {
             lbList.innerHTML = '<div class="empty-lobby"><div class="empty-icon">🏆</div><p>Brak danych</p><p class="empty-sub">Zagraj pierwszą grę, aby pojawić się na liście!</p></div>';
             return;
@@ -1571,7 +1742,7 @@ socket.on('systemMessage', (msg) => {
 });
 
 // ── CLOSE MODALS ON BACKGROUND CLICK ───────────────────────────
-['create-modal','view-modal','result-modal','deposit-modal','withdraw-modal','join-modal','game-info-modal','rules-modal'].forEach(id => {
+['create-modal','view-modal','result-modal','deposit-modal','withdraw-modal','join-modal','game-info-modal','rules-modal','profile-modal'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener('click', function(e) {
