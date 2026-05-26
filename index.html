@@ -95,6 +95,10 @@
           <span class="st-icon">🎁</span>
           <span class="st-label">Promo Code</span>
         </button>
+        <button class="sidebar-tab" data-tab="chat" onclick="openChat()">
+          <span class="st-icon">💬</span>
+          <span class="st-label">Chat</span>
+        </button>
       </nav>
 
       <div class="sidebar-spacer"></div>
@@ -318,6 +322,44 @@
       </div>
 
     </main>
+  </div>
+
+  <!-- ── CHAT PANEL (desktop, right side) ──────────── -->
+  <aside class="chat-panel" id="chat-panel">
+    <div class="chat-header">
+      <span class="chat-header-icon">💬</span>
+      <span class="chat-header-title">Chat</span>
+      <span class="chat-online" id="chat-online"></span>
+    </div>
+    <div class="chat-messages" id="chat-messages">
+      <div class="chat-loading">
+        <div class="dot-pulse"></div>
+        <span>Ładowanie wiadomości...</span>
+      </div>
+    </div>
+    <div class="chat-input-wrap">
+      <input class="chat-input" id="chat-input" placeholder="Napisz wiadomość..." maxlength="300" autocomplete="off">
+      <button class="chat-send-btn" id="chat-send-btn" onclick="sendChatMessage()">➤</button>
+    </div>
+  </aside>
+
+  <!-- ── MOBILE CHAT OVERLAY ────────────────────────── -->
+  <div class="chat-overlay" id="chat-overlay">
+    <div class="chat-overlay-header">
+      <span class="chat-header-icon">💬</span>
+      <span class="chat-header-title">Chat</span>
+      <button class="chat-overlay-close" onclick="closeChatOverlay()">✕</button>
+    </div>
+    <div class="chat-overlay-msgs" id="chat-overlay-msgs">
+      <div class="chat-loading">
+        <div class="dot-pulse"></div>
+        <span>Ładowanie wiadomości...</span>
+      </div>
+    </div>
+    <div class="chat-overlay-input-wrap">
+      <input class="chat-input" id="chat-overlay-input" placeholder="Napisz wiadomość..." maxlength="300" autocomplete="off">
+      <button class="chat-send-btn" onclick="sendChatMessageOverlay()">➤</button>
+    </div>
   </div>
 </div>
 

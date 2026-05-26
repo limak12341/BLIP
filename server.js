@@ -36,6 +36,10 @@ const lobbyDb = new Datastore({ filename: path.join(__dirname, 'baza_lobby.db'),
 const inventoryDb = new Datastore({ filename: path.join(__dirname, 'baza_inventory.db'), autoload: true });
 const requestsDb  = new Datastore({ filename: path.join(__dirname, 'baza_requests.db'),  autoload: true });
 
+// Chat
+const chatDb = new Datastore({ filename: path.join(__dirname, 'baza_chat.db'), autoload: true });
+chatDb.ensureIndex({ fieldName: 'timestamp', expireAfterSeconds: 86400 * 7 }); // auto-usuwanie po 7 dniach
+
 // Indeksy
 gamesDb.ensureIndex({ fieldName: 'players', sparse: true });
 requestsDb.ensureIndex({ fieldName: 'userId', sparse: true });
@@ -43,6 +47,7 @@ requestsDb.ensureIndex({ fieldName: 'status', sparse: true });
 requestsDb.ensureIndex({ fieldName: 'type', sparse: true });
 
 const activeGames = new Map();
+const connectedUsers = new Set();
 let gameCounter = 1;
 const tempCodes = new Map();
 
@@ -975,6 +980,11 @@ function returnItemsToOwner(gameId, userId, callback) {
 // ── SOCKETS (coinflip) ────────────────────────────────────────
 io.on('connection', (socket) => {
     const sess = socket.request.session;
+    
+    // Online count
+    connectedUsers.add(socket.id);
+    io.emit('onlineCount', connectedUsers.size);
+    
     socket.on('checkSession', () => {
         if (sess?.robloxId) {
             getOrCreateUser(sess.robloxId, sess.username, sess.avatarUrl, (user) => {
@@ -1117,7 +1127,49 @@ io.on('connection', (socket) => {
         });
     });
 
-    socket.on('disconnect', () => { /* tu logika rozłączenia */ });
+    // ── CHAT ────────────────────────────────────────────────
+    socket.on('getChatHistory', () => {
+        chatDb.find({}).sort({ timestamp: -1 }).limit(50).exec((err, docs) => {
+            const messages = (docs || []).reverse();
+            socket.emit('chatHistory', messages);
+        });
+    });
+
+    socket.on('sendChatMessage', (data) => {
+        const text = safeStr(data?.message || '').slice(0, 300);
+        if (!sess?.robloxId || !text) return;
+        
+        const msg = {
+            _id: newId('chat'),
+            userId: sess.robloxId,
+            username: sess.username || 'Unknown',
+            avatarUrl: sess.avatarUrl || '',
+            message: text,
+            timestamp: Date.now()
+        };
+        
+        chatDb.insert(msg, (err) => {
+            if (err) return;
+            // Usuń stare wiadomości (keep max 100)
+            chatDb.count({}, (err, count) => {
+                if (count > 100) {
+                    chatDb.find({}).sort({ timestamp: 1 }).limit(count - 100).exec((err, old) => {
+                        if (old) chatDb.remove({ _id: { $in: old.map(o => o._id) } }, { multi: true });
+                    });
+                }
+            });
+            io.emit('newChatMessage', msg);
+        });
+    });
+
+    socket.on('countOnline', () => {
+        socket.emit('onlineCount', connectedUsers.size);
+    });
+
+    socket.on('disconnect', () => {
+        connectedUsers.delete(socket.id);
+        io.emit('onlineCount', connectedUsers.size);
+    });
 });
 
 function getLocalAddresses() {
