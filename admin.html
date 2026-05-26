@@ -59,18 +59,94 @@
 
   <div id="admin-panel" style="display:none">
     <div class="admin-toolbar">
-      <div class="admin-title">Zgłoszenia</div>
-      <div class="filters">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="chip active" id="tab-btn-requests">Zgłoszenia</button>
+        <button class="chip" id="tab-btn-players">Gracze</button>
+        <button class="chip" id="tab-btn-logs">Logi</button>
+        <button class="chip" id="tab-btn-warnings">Ostrzeżenia</button>
+        <button class="chip" id="tab-btn-system">📢 Wiadomości</button>
+      </div>
+    </div>
+
+    <!-- TAB: Zgłoszenia -->
+    <div id="tab-requests">
+      <div class="filters" style="margin-bottom:14px">
         <button class="chip active" data-status="" data-type="">Wszystkie</button>
         <button class="chip" data-status="pending" data-type="">Pending</button>
         <button class="chip" data-status="valued" data-type="">Wycenione 🤖</button>
         <button class="chip" data-status="" data-type="deposit">Deposit</button>
         <button class="chip" data-status="" data-type="withdraw">Withdraw</button>
       </div>
+      <div class="admin-grid" id="list"></div>
+      <div class="empty-mini" id="empty" style="display:none">Brak zgłoszeń do pokazania.</div>
     </div>
 
-    <div class="admin-grid" id="list"></div>
-    <div class="empty-mini" id="empty" style="display:none">Brak zgłoszeń do pokazania.</div>
+    <!-- TAB: Gracze -->
+    <div id="tab-players" style="display:none">
+      <div class="admin-title" style="margin-bottom:14px">👥 Zarządzanie graczami</div>
+      <div id="players-list"></div>
+      <div class="empty-mini" id="players-empty" style="display:none">Brak graczy.</div>
+    </div>
+
+    <!-- TAB: Logi -->
+    <div id="tab-logs" style="display:none">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+        <div class="admin-title">📋 Logi admina</div>
+        <div style="display:flex;gap:8px">
+          <select id="log-type-filter" style="padding:8px 12px;border-radius:8px;background:var(--surf2);border:1px solid var(--border2);color:var(--text);font-family:inherit;font-size:.8rem;cursor:pointer;outline:none;font-weight:600">
+            <option value="">Wszystkie</option>
+            <option value="ban">🔴 Ban</option>
+            <option value="unban">🟢 Unban</option>
+            <option value="role">🟣 Role</option>
+            <option value="warn">⚠️ Warn</option>
+            <option value="balance">🪙 Saldo</option>
+            <option value="approve">✔ Approve</option>
+            <option value="reject">✕ Reject</option>
+            <option value="system-message">📢 System</option>
+          </select>
+          <button class="btn-ok" id="refresh-logs-btn" style="padding:8px 14px;font-size:.78rem">↻</button>
+        </div>
+      </div>
+      <div id="logs-list" style="display:flex;flex-direction:column;gap:8px"></div>
+      <div class="empty-mini" id="logs-empty" style="display:none">Brak logów.</div>
+    </div>
+
+    <!-- TAB: Ostrzeżenia -->
+    <div id="tab-warnings" style="display:none">
+      <div class="admin-title" style="margin-bottom:14px">⚠️ Ostrzeżenia graczy</div>
+      <div style="background:var(--surf);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:16px">
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <input class="login-input" id="warn-player-id" placeholder="ID Roblox gracza" style="width:200px">
+          <input class="login-input" id="warn-reason" placeholder="Powód ostrzeżenia" style="flex:1;min-width:160px">
+          <button class="flip-btn" id="submit-warn-btn" style="padding:12px 18px;font-size:.82rem;width:auto">⚠️ Ostrzeż</button>
+        </div>
+        <div class="login-error" id="warn-err" style="margin-top:8px"></div>
+      </div>
+      <div id="all-warnings-list" style="display:flex;flex-direction:column;gap:8px"></div>
+      <div class="empty-mini" id="all-warnings-empty" style="display:none">Brak ostrzeżeń.</div>
+    </div>
+
+    <!-- TAB: Wiadomości systemowe -->
+    <div id="tab-system" style="display:none">
+      <div class="admin-title" style="margin-bottom:14px">📢 Wiadomość systemowa</div>
+      <div style="background:var(--surf);border:1px solid var(--border);border-radius:14px;padding:20px">
+        <div class="login-note" style="margin-bottom:12px">
+          Wiadomość zostanie wysłana do <b>wszystkich</b> graczy online w czasie rzeczywistym.
+        </div>
+        <textarea class="login-input" id="system-msg-input" placeholder="Treść wiadomości..." style="min-height:100px;resize:vertical;font-family:inherit;padding:12px 14px"></textarea>
+        <div style="display:flex;gap:10px;margin-top:12px;align-items:center">
+          <button class="flip-btn" id="send-system-msg-btn" style="padding:12px 24px;font-size:.85rem;width:auto">📤 Wyślij do wszystkich</button>
+          <span id="system-msg-status" style="font-size:.85rem;font-weight:700"></span>
+        </div>
+      </div>
+      <div style="margin-top:20px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <span class="admin-title" style="font-size:.85rem">📜 Historia wiadomości</span>
+        </div>
+        <div id="system-history" style="display:flex;flex-direction:column;gap:8px"></div>
+        <div class="empty-mini" id="system-history-empty" style="display:none">Brak wysłanych wiadomości.</div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -116,6 +192,193 @@
 
   let filterStatus = '';
   let filterType = '';
+  let currentAdminTab = 'requests';
+
+
+
+  // ── TAB SWITCHING: update for new tabs ──
+  function switchTab(tab) {
+    currentAdminTab = tab;
+    ['tab-requests','tab-players','tab-logs','tab-warnings','tab-system'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = id === 'tab-' + tab ? 'block' : 'none';
+    });
+    document.querySelectorAll('#admin-panel .admin-toolbar .chip').forEach(ch => ch.classList.remove('active'));
+    const btn = document.getElementById('tab-btn-' + tab);
+    if (btn) btn.classList.add('active');
+    
+    if (tab === 'players') refreshPlayers();
+    else if (tab === 'requests') refresh();
+    else if (tab === 'logs') refreshLogs();
+    else if (tab === 'warnings') refreshAllWarnings();
+    else if (tab === 'system') refreshSystemHistory();
+  }
+
+  document.getElementById('tab-btn-requests').addEventListener('click', () => switchTab('requests'));
+  document.getElementById('tab-btn-players').addEventListener('click', () => switchTab('players'));
+  document.getElementById('tab-btn-logs').addEventListener('click', () => switchTab('logs'));
+  document.getElementById('tab-btn-warnings').addEventListener('click', () => switchTab('warnings'));
+  document.getElementById('tab-btn-system').addEventListener('click', () => switchTab('system'));
+
+  // ── LOGS ──
+  async function refreshLogs() {
+    const list = document.getElementById('logs-list');
+    const empty = document.getElementById('logs-empty');
+    const filter = document.getElementById('log-type-filter').value;
+    list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted)">Ładowanie...</div>';
+    empty.style.display = 'none';
+    try {
+      const qs = filter ? '?type=' + encodeURIComponent(filter) : '';
+      const data = await apiJson('/api/admin/logs' + qs);
+      const logs = data.logs || [];
+      list.innerHTML = '';
+      empty.style.display = logs.length ? 'none' : 'block';
+      
+      const typeIcons = { ban:'🔴', unban:'🟢', role:'🟣', warn:'⚠️', balance:'🪙', approve:'✔', reject:'✕', 'system-message':'📢' };
+      
+      logs.forEach(log => {
+        const icon = typeIcons[log.type] || '📋';
+        const card = document.createElement('div');
+        card.style.cssText = 'background:var(--surf);border:1px solid var(--border);border-radius:12px;padding:12px 16px;display:flex;align-items:center;gap:12px';
+        card.innerHTML = `
+          <span style="font-size:1.2rem;flex-shrink:0">${icon}</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:.82rem;font-weight:600">${escapeHtml(log.description)}</div>
+            <div style="font-size:.7rem;color:var(--muted);margin-top:3px">
+              ${escapeHtml(log.adminUsername)} · ${timeAgo(log.timestamp)}
+            </div>
+          </div>
+        `;
+        list.appendChild(card);
+      });
+    } catch (e) {
+      list.innerHTML = `<div class="empty-mini">Błąd: ${escapeHtml(e.message)}</div>`;
+    }
+  }
+
+  document.getElementById('log-type-filter').addEventListener('change', refreshLogs);
+  document.getElementById('refresh-logs-btn').addEventListener('click', refreshLogs);
+
+  // ── WARNINGS ──
+  document.getElementById('submit-warn-btn').addEventListener('click', async () => {
+    const userId = document.getElementById('warn-player-id').value.trim();
+    const reason = document.getElementById('warn-reason').value.trim();
+    const errEl = document.getElementById('warn-err');
+    errEl.textContent = '';
+    if (!userId || !reason) {
+      errEl.textContent = 'Podaj ID i powód ostrzeżenia.';
+      return;
+    }
+    try {
+      await apiJson('/api/admin/players/' + encodeURIComponent(userId) + '/warn', {
+        method: 'POST',
+        body: JSON.stringify({ reason })
+      });
+      document.getElementById('warn-player-id').value = '';
+      document.getElementById('warn-reason').value = '';
+      errEl.style.color = 'var(--green)';
+      errEl.textContent = '✅ Ostrzeżenie wysłane!';
+      refreshAllWarnings();
+    } catch (e) {
+      errEl.style.color = '';
+      errEl.textContent = e.message;
+    }
+  });
+
+  async function refreshAllWarnings() {
+    const list = document.getElementById('all-warnings-list');
+    const empty = document.getElementById('all-warnings-empty');
+    list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted)">Ładowanie...</div>';
+    empty.style.display = 'none';
+    try {
+      const data = await apiJson('/api/admin/logs?type=warn&limit=200');
+      const logs = data.logs || [];
+      list.innerHTML = '';
+      empty.style.display = logs.length ? 'none' : 'block';
+      
+      logs.forEach(log => {
+        const card = document.createElement('div');
+        card.style.cssText = 'background:var(--surf);border:1px solid rgba(232,65,24,.2);border-radius:12px;padding:12px 16px;display:flex;align-items:center;gap:10px;border-left:3px solid var(--red)';
+        card.innerHTML = `
+          <span style="font-size:1.1rem;flex-shrink:0">⚠️</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:.82rem;font-weight:600">${escapeHtml(log.description)}</div>
+            <div style="font-size:.7rem;color:var(--muted);margin-top:3px">
+              Admin: ${escapeHtml(log.adminUsername)} · ${timeAgo(log.timestamp)}
+            </div>
+          </div>
+        `;
+        list.appendChild(card);
+      });
+    } catch (e) {
+      list.innerHTML = `<div class="empty-mini">Błąd: ${escapeHtml(e.message)}</div>`;
+    }
+  }
+
+  // ── SYSTEM MESSAGES ──
+  document.getElementById('send-system-msg-btn').addEventListener('click', async () => {
+    const input = document.getElementById('system-msg-input');
+    const status = document.getElementById('system-msg-status');
+    const text = input.value.trim();
+    if (!text) { status.textContent = '❌ Wpisz treść wiadomości!'; status.style.color = 'var(--red)'; return; }
+    
+    const btn = document.getElementById('send-system-msg-btn');
+    btn.disabled = true;
+    btn.textContent = 'Wysyłanie...';
+    status.textContent = '';
+    
+    try {
+      await apiJson('/api/admin/system-message', {
+        method: 'POST',
+        body: JSON.stringify({ message: text })
+      });
+      input.value = '';
+      status.textContent = '✅ Wiadomość wysłana do wszystkich graczy!';
+      status.style.color = 'var(--green)';
+      refreshSystemHistory();
+    } catch (e) {
+      status.textContent = '❌ ' + e.message;
+      status.style.color = 'var(--red)';
+    }
+    
+    btn.disabled = false;
+    btn.textContent = '📤 Wyślij do wszystkich';
+  });
+
+  async function refreshSystemHistory() {
+    const list = document.getElementById('system-history');
+    const empty = document.getElementById('system-history-empty');
+    list.innerHTML = '';
+    empty.style.display = 'none';
+    try {
+      const data = await apiJson('/api/admin/logs?type=system-message&limit=50');
+      const logs = data.logs || [];
+      empty.style.display = logs.length ? 'none' : 'block';
+      
+      logs.forEach(log => {
+        const card = document.createElement('div');
+        card.style.cssText = 'background:var(--surf);border:1px solid var(--border);border-radius:12px;padding:14px 16px;border-left:3px solid var(--gold)';
+        card.innerHTML = `
+          <div style="font-size:.82rem;font-weight:600;color:var(--gold);margin-bottom:4px">📢 ${escapeHtml(log.description.replace('Wysłano: ','').replace(/"/g,''))}</div>
+          <div style="font-size:.7rem;color:var(--muted)">${escapeHtml(log.adminUsername)} · ${timeAgo(log.timestamp)}</div>
+        `;
+        list.appendChild(card);
+      });
+    } catch (e) {
+      list.innerHTML = `<div class="empty-mini">Błąd: ${escapeHtml(e.message)}</div>`;
+    }
+  }
+
+  function roleLabel(role) {
+    const labels = { helper:'Helper', mod:'Mod', smod:'SMod', owner:'Owner' };
+    return labels[role] || '—';
+  }
+  function roleBadgeHtml(role) {
+    if (!role) return '<span style="color:var(--muted);font-size:.78rem">—</span>';
+    const colors = { helper:'#2ed573', mod:'#0abde3', smod:'#a29bfe', owner:'#f0b429' };
+    const color = colors[role] || 'var(--muted)';
+    return `<span style="display:inline-block;padding:2px 8px;border-radius:6px;font-size:.68rem;font-weight:800;text-transform:uppercase;background:${color}18;color:${color};border:1px solid ${color}44">${roleLabel(role)}</span>`;
+  }
 
   async function refresh() {
     const qs = new URLSearchParams();
@@ -208,15 +471,127 @@
     location.reload();
   });
 
-  document.querySelectorAll('.chip').forEach(ch => {
+  // ── FILTER CHIPS (tylko te z data-status) ──
+  document.querySelectorAll('.filters .chip').forEach(ch => {
     ch.addEventListener('click', async () => {
-      document.querySelectorAll('.chip').forEach(x => x.classList.remove('active'));
+      document.querySelectorAll('.filters .chip').forEach(x => x.classList.remove('active'));
       ch.classList.add('active');
       filterStatus = ch.getAttribute('data-status') || '';
       filterType = ch.getAttribute('data-type') || '';
       try { await refresh(); } catch (e) { alert(e.message); }
     });
   });
+
+  // ── PLAYERS MANAGEMENT ──
+  async function refreshPlayers() {
+    const list = document.getElementById('players-list');
+    const empty = document.getElementById('players-empty');
+    list.innerHTML = '';
+    try {
+      const data = await apiJson('/api/admin/players');
+      const players = data.players || [];
+      empty.style.display = players.length ? 'none' : 'block';
+      if (!players.length) return;
+
+      let html = `<div style="overflow-x:auto;border-radius:14px;border:1px solid var(--border);background:var(--surf)">`;
+      html += `<div style="display:grid;grid-template-columns:40px 1fr 80px 90px 110px 180px;gap:8px;padding:12px 16px;background:var(--surf2);font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);border-bottom:1px solid var(--border)">
+        <span></span><span>Gracz</span><span>ID</span><span>Balans</span><span>Status</span><span>Akcje</span>
+      </div>`;
+
+      players.forEach(p => {
+        const avatarHtml = p.avatarUrl
+          ? `<img src="${escapeHtml(p.avatarUrl)}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;border:2px solid var(--surf3)">`
+          : `<div style="width:32px;height:32px;border-radius:50%;background:var(--surf3);border:2px dashed var(--border2);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:.7rem">?</div>`;
+
+        const isBanned = !!p.banned;
+        const statusHtml = isBanned
+          ? `<span style="font-size:.72rem;font-weight:700;padding:3px 8px;border-radius:6px;text-align:center;color:var(--red);background:rgba(232,65,24,.1);border:1px solid rgba(232,65,24,.2)">🔴 Zbanowany</span>`
+          : `<span style="font-size:.72rem;font-weight:700;padding:3px 8px;border-radius:6px;text-align:center;color:var(--green);background:rgba(46,213,115,.1);border:1px solid rgba(46,213,115,.2)">🟢 Aktywny</span>`;
+
+        const selectedRole = p.role || '';
+
+        html += `<div style="display:grid;grid-template-columns:40px 1fr 80px 90px 110px 180px;gap:8px;padding:10px 16px;border-bottom:1px solid var(--border);align-items:center">
+          ${avatarHtml}
+          <div>
+            <div style="font-weight:700;font-size:.88rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(p.username)}</div>
+            <div style="font-size:.65rem;color:var(--muted);margin-top:2px">${roleBadgeHtml(selectedRole)}</div>
+          </div>
+          <span style="font-size:.7rem;color:var(--muted);font-family:monospace;overflow:hidden;text-overflow:ellipsis">${escapeHtml(p._id).slice(0,12)}</span>
+          <span style="font-family:'Orbitron',monospace;font-size:.82rem;font-weight:700;color:var(--gold)">🪙 ${fmt(p.balance)}</span>
+          ${statusHtml}
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <select class="role-select" data-id="${escapeHtml(p._id)}" style="padding:4px 6px;border-radius:8px;background:var(--surf2);border:1px solid var(--border2);color:var(--text);font-size:.7rem;font-weight:600;font-family:inherit;cursor:pointer;outline:none">
+              <option value="" ${selectedRole === '' ? 'selected' : ''}>— Brak</option>
+              <option value="helper" ${selectedRole === 'helper' ? 'selected' : ''}>🟢 Helper</option>
+              <option value="mod" ${selectedRole === 'mod' ? 'selected' : ''}>🔵 Mod</option>
+              <option value="smod" ${selectedRole === 'smod' ? 'selected' : ''}>🟣 SMod</option>
+              <option value="owner" ${selectedRole === 'owner' ? 'selected' : ''}>🟡 Owner</option>
+            </select>
+            ${!isBanned
+              ? `<button class="ban-btn" data-id="${escapeHtml(p._id)}" style="padding:4px 8px;border-radius:6px;background:rgba(232,65,24,.1);border:1px solid rgba(232,65,24,.25);color:var(--red);font-size:.68rem;font-weight:700;cursor:pointer">Ban</button>`
+              : `<button class="unban-btn" data-id="${escapeHtml(p._id)}" style="padding:4px 8px;border-radius:6px;background:rgba(46,213,115,.1);border:1px solid rgba(46,213,115,.25);color:var(--green);font-size:.68rem;font-weight:700;cursor:pointer">Unban</button>`}
+            <button class="balance-btn" data-id="${escapeHtml(p._id)}" style="padding:4px 8px;border-radius:6px;background:rgba(240,180,41,.1);border:1px solid rgba(240,180,41,.25);color:var(--gold);font-size:.68rem;font-weight:700;cursor:pointer" title="Edytuj saldo">🪙</button>
+          </div>
+        </div>`;
+      });
+
+      html += '</div>';
+      list.innerHTML = html;
+
+      // Role select
+      list.querySelectorAll('.role-select').forEach(sel => {
+        sel.addEventListener('change', async () => {
+          try {
+            await apiJson('/api/admin/players/' + encodeURIComponent(sel.dataset.id) + '/role', {
+              method: 'POST',
+              body: JSON.stringify({ role: sel.value })
+            });
+          } catch (e) { alert(e.message); }
+        });
+      });
+
+      // Ban
+      list.querySelectorAll('.ban-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          if (!confirm('Zbanować tego gracza?')) return;
+          try {
+            await apiJson('/api/admin/players/' + encodeURIComponent(btn.dataset.id) + '/ban', { method: 'POST' });
+            await refreshPlayers();
+          } catch (e) { alert(e.message); }
+        });
+      });
+
+      // Unban
+      list.querySelectorAll('.unban-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          try {
+            await apiJson('/api/admin/players/' + encodeURIComponent(btn.dataset.id) + '/unban', { method: 'POST' });
+            await refreshPlayers();
+          } catch (e) { alert(e.message); }
+        });
+      });
+
+      // Balance
+      list.querySelectorAll('.balance-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const amount = prompt('Nowe saldo (🪙):');
+          if (amount === null) return;
+          const num = parseInt(amount);
+          if (isNaN(num) || num < 0) return alert('Podaj prawidłową liczbę (0+).');
+          try {
+            await apiJson('/api/admin/players/' + encodeURIComponent(btn.dataset.id) + '/balance', {
+              method: 'POST',
+              body: JSON.stringify({ amount: num })
+            });
+            await refreshPlayers();
+          } catch (e) { alert(e.message); }
+        });
+      });
+
+    } catch (e) {
+      list.innerHTML = `<div class="empty-mini">Błąd: ${escapeHtml(e.message)}</div>`;
+    }
+  }
 </script>
 
 </body>

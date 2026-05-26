@@ -40,6 +40,10 @@ const requestsDb  = new Datastore({ filename: path.join(__dirname, 'baza_request
 const chatDb = new Datastore({ filename: path.join(__dirname, 'baza_chat.db'), autoload: true });
 chatDb.ensureIndex({ fieldName: 'timestamp', expireAfterSeconds: 86400 * 7 }); // auto-usuwanie po 7 dniach
 
+// Admin logs + warnings
+const logsDb = new Datastore({ filename: path.join(__dirname, 'baza_logow.db'), autoload: true });
+const warningsDb = new Datastore({ filename: path.join(__dirname, 'baza_ostrzezen.db'), autoload: true });
+
 // Indeksy
 gamesDb.ensureIndex({ fieldName: 'players', sparse: true });
 requestsDb.ensureIndex({ fieldName: 'userId', sparse: true });
@@ -798,6 +802,7 @@ app.post('/api/admin/requests/:id/approve', requireAdmin, (req, res) => {
     requestsDb.findOne({ _id: id }, (err, doc) => {
         if (!doc) return res.status(404).json({ message: 'Nie znaleziono zgłoszenia.' });
         if (!['pending', 'valued'].includes(doc.status)) return res.status(400).json({ message: 'To zgłoszenie nie może być już zatwierdzone.' });
+        addLog('approve', `Zatwierdzono ${doc.type} (${id}) od ${doc.username || doc.userId}`, req);
 
         const items = sanitizeItems(doc.items);
         if (!items.length) return res.status(400).json({ message: 'Brak itemów w zgłoszeniu.' });
@@ -838,6 +843,7 @@ app.post('/api/admin/requests/:id/reject', requireAdmin, (req, res) => {
     requestsDb.findOne({ _id: id }, (err, doc) => {
         if (!doc) return res.status(404).json({ message: 'Nie znaleziono zgłoszenia.' });
         if (!['pending', 'valued'].includes(doc.status)) return res.status(400).json({ message: 'To zgłoszenie nie może być już odrzucone.' });
+        addLog('reject', `Odrzucono ${doc.type} (${id}) od ${doc.username || doc.userId}`, req);
 
         requestsDb.update(
             { _id: id },
@@ -859,6 +865,7 @@ app.get('/api/admin/players', requireAdmin, (req, res) => {
             avatarUrl: p.avatarUrl || '',
             balance: p.balance || 0,
             banned: !!p.banned,
+            role: p.role || '',
             createdAt: p.createdAt || 0
         }));
         res.json({ players });
@@ -868,6 +875,7 @@ app.get('/api/admin/players', requireAdmin, (req, res) => {
 app.post('/api/admin/players/:id/ban', requireAdmin, (req, res) => {
     db.update({ _id: req.params.id }, { $set: { banned: true } }, {}, (err) => {
         if (err) return res.status(500).json({ message: 'Błąd bana.' });
+        addLog('ban', `Zbanowano ${req.params.id}`, req);
         res.json({ ok: true });
     });
 });
@@ -875,7 +883,19 @@ app.post('/api/admin/players/:id/ban', requireAdmin, (req, res) => {
 app.post('/api/admin/players/:id/unban', requireAdmin, (req, res) => {
     db.update({ _id: req.params.id }, { $set: { banned: false } }, {}, (err) => {
         if (err) return res.status(500).json({ message: 'Błąd odbanowania.' });
+        addLog('unban', `Odbanowano ${req.params.id}`, req);
         res.json({ ok: true });
+    });
+});
+
+app.post('/api/admin/players/:id/role', requireAdmin, (req, res) => {
+    const role = safeStr(req.body.role || '');
+    const validRoles = ['','helper','mod','smod','owner'];
+    if (!validRoles.includes(role)) return res.status(400).json({ message: 'Nieprawidłowa rola. Dozwolone: helper, mod, smod, owner' });
+    db.update({ _id: req.params.id }, { $set: { role } }, {}, (err) => {
+        if (err) return res.status(500).json({ message: 'Błąd zapisu roli.' });
+        addLog('role', `Zmieniono rolę ${req.params.id} na "${role}"`, req);
+        res.json({ ok: true, role });
     });
 });
 
@@ -884,9 +904,89 @@ app.post('/api/admin/players/:id/balance', requireAdmin, (req, res) => {
     if (isNaN(amount) || amount < 0) return res.status(400).json({ message: 'Podaj prawidłową kwotę (0+).' });
     db.update({ _id: req.params.id }, { $set: { balance: amount } }, {}, (err) => {
         if (err) return res.status(500).json({ message: 'Błąd zapisu salda.' });
+        addLog('balance', `Zmieniono saldo ${req.params.id} na 🪙 ${amount}`, req);
         res.json({ ok: true, balance: amount });
     });
 });
+
+// ── ADMIN: SYSTEM MESSAGE ────────────────────────────────
+app.post('/api/admin/system-message', requireAdmin, (req, res) => {
+    const message = safeStr(req.body.message).slice(0, 500);
+    if (!message) return res.status(400).json({ message: 'Wpisz treść wiadomości.'});
+    
+    const msg = {
+        _id: newId('sys'),
+        type: 'announcement',
+        message,
+        author: req.session.username || 'Admin',
+        timestamp: Date.now()
+    };
+    
+    // Wyślij do wszystkich podłączonych klientów
+    io.emit('systemMessage', msg);
+    
+    // Zapisz w logach
+    logsDb.insert(msg, () => {});
+    addLog('system-message', `Wysłano: "${message}"`, req);
+    
+    res.json({ ok: true });
+});
+
+// ── ADMIN: WARNINGS ──────────────────────────────────────
+app.post('/api/admin/players/:id/warn', requireAdmin, (req, res) => {
+    const reason = safeStr(req.body.reason || '').slice(0, 300);
+    if (!reason) return res.status(400).json({ message: 'Podaj powód ostrzeżenia.' });
+    
+    db.findOne({ _id: req.params.id }, (err, user) => {
+        if (!user) return res.status(404).json({ message: 'Nie znaleziono gracza.' });
+        
+        const warning = {
+            _id: newId('warn'),
+            userId: req.params.id,
+            username: user.username || 'Unknown',
+            reason,
+            issuedBy: req.session.username || 'Admin',
+            timestamp: Date.now()
+        };
+        
+        warningsDb.insert(warning, (err) => {
+            if (err) return res.status(500).json({ message: 'Błąd zapisu ostrzeżenia.' });
+            addLog('warn', `Ostrzeżenie dla ${user.username} (${req.params.id}): ${reason}`, req);
+            res.json({ ok: true, warning });
+        });
+    });
+});
+
+app.get('/api/admin/players/:id/warnings', requireAdmin, (req, res) => {
+    warningsDb.find({ userId: req.params.id }).sort({ timestamp: -1 }).exec((err, docs) => {
+        res.json({ warnings: err ? [] : (docs || []) });
+    });
+});
+
+// ── ADMIN: LOGS ──────────────────────────────────────────
+app.get('/api/admin/logs', requireAdmin, (req, res) => {
+    const type = safeStr(req.query.type || '');
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 100));
+    const q = {};
+    if (type) q.type = type;
+    
+    logsDb.find(q).sort({ timestamp: -1 }).limit(limit).exec((err, docs) => {
+        res.json({ logs: err ? [] : (docs || []) });
+    });
+});
+
+function addLog(type, description, req) {
+    const entry = {
+        _id: newId('log'),
+        type,
+        description,
+        adminUsername: req?.session?.username || 'Admin',
+        timestamp: Date.now()
+    };
+    logsDb.insert(entry, (err) => {
+        if (err) console.error('Błąd zapisu logu:', err);
+    });
+}
 
 app.get('/api/admin/active-games', requireAdmin, (req, res) => {
     const games = [...activeGames.values()].map(g => ({
@@ -1131,7 +1231,9 @@ io.on('connection', (socket) => {
     socket.on('getChatHistory', () => {
         chatDb.find({}).sort({ timestamp: -1 }).limit(50).exec((err, docs) => {
             const messages = (docs || []).reverse();
-            socket.emit('chatHistory', messages);
+            // Dodaj role do wiadomości (jeśli brak, użyj pustego stringa)
+            const withRoles = messages.map(m => ({ ...m, role: m.role || '' }));
+            socket.emit('chatHistory', withRoles);
         });
     });
 
@@ -1139,16 +1241,22 @@ io.on('connection', (socket) => {
         const text = safeStr(data?.message || '').slice(0, 300);
         if (!sess?.robloxId || !text) return;
         
-        const msg = {
-            _id: newId('chat'),
-            userId: sess.robloxId,
-            username: sess.username || 'Unknown',
-            avatarUrl: sess.avatarUrl || '',
-            message: text,
-            timestamp: Date.now()
-        };
-        
-        chatDb.insert(msg, (err) => {
+        // Pobierz rolę użytkownika z bazy
+        let userRole = '';
+        db.findOne({ _id: sess.robloxId }, (err, user) => {
+            if (user && user.role) userRole = user.role;
+            
+            const msg = {
+                _id: newId('chat'),
+                userId: sess.robloxId,
+                username: sess.username || 'Unknown',
+                avatarUrl: sess.avatarUrl || '',
+                message: text,
+                role: userRole,
+                timestamp: Date.now()
+            };
+            
+            chatDb.insert(msg, (err) => {
             if (err) return;
             // Usuń stare wiadomości (keep max 100)
             chatDb.count({}, (err, count) => {
@@ -1160,6 +1268,7 @@ io.on('connection', (socket) => {
             });
             io.emit('newChatMessage', msg);
         });
+    });
     });
 
     socket.on('countOnline', () => {

@@ -1398,6 +1398,12 @@ function timeAgoShort(ts) {
     return `${Math.floor(s/86400)}d`;
 }
 
+function roleBadgeHtml(role) {
+    const labels = { helper:'Helper', mod:'Mod', smod:'SMod', owner:'Owner' };
+    const label = labels[role] || role;
+    return `<span class="role-badge role-${escapeHtml(role)}">${label}</span>`;
+}
+
 function renderChatMessages(container) {
     if (!container) return;
     if (!chatMessages.length) {
@@ -1415,11 +1421,13 @@ function renderChatMessages(container) {
         const avatarHtml = msg.avatarUrl
             ? `<img class="chat-msg-avatar" src="${msg.avatarUrl}" alt="">`
             : `<div class="chat-msg-avatar-empty">?</div>`;
+        const roleBadge = msg.role ? roleBadgeHtml(msg.role) : '';
         html += `<div class="chat-msg ${isMine ? 'is-mine' : ''}">
             ${avatarHtml}
             <div class="chat-msg-body">
                 <div class="chat-msg-top">
                     <span class="chat-msg-username">${escapeHtml(msg.username)}</span>
+                    ${roleBadge}
                     <span class="chat-msg-time">${timeAgoShort(msg.timestamp)}</span>
                 </div>
                 <div class="chat-msg-text">${escapeHtml(msg.message)}</div>
@@ -1506,11 +1514,13 @@ socket.on('newChatMessage', (msg) => {
         const avatarHtml = msg.avatarUrl
             ? `<img class="chat-msg-avatar" src="${msg.avatarUrl}" alt="">`
             : `<div class="chat-msg-avatar-empty">?</div>`;
+        const roleBadge = msg.role ? roleBadgeHtml(msg.role) : '';
         html = `<div class="chat-msg ${isMine ? 'is-mine' : ''}">
             ${avatarHtml}
             <div class="chat-msg-body">
                 <div class="chat-msg-top">
                     <span class="chat-msg-username">${escapeHtml(msg.username)}</span>
+                    ${roleBadge}
                     <span class="chat-msg-time">${timeAgoShort(msg.timestamp)}</span>
                 </div>
                 <div class="chat-msg-text">${escapeHtml(msg.message)}</div>
@@ -1533,6 +1543,31 @@ socket.on('newChatMessage', (msg) => {
         overlayMsgs.insertAdjacentHTML('beforeend', html);
         scrollOverlayToBottom();
     }
+});
+
+// ── SYSTEM MESSAGE TOAST ────────────────────────────────────────
+socket.on('systemMessage', (msg) => {
+    // Usuń stary toast jeśli istnieje
+    const old = document.getElementById('sys-toast');
+    if (old) old.remove();
+    
+    const toast = document.createElement('div');
+    toast.id = 'sys-toast';
+    toast.innerHTML = `
+        <div class="sys-toast-icon">📢</div>
+        <div class="sys-toast-body">
+            <div class="sys-toast-title">Ogłoszenie serwera</div>
+            <div class="sys-toast-text">${escapeHtml(msg.message)}</div>
+        </div>
+        <button class="sys-toast-close" onclick="this.parentElement.remove()">✕</button>
+    `;
+    document.body.appendChild(toast);
+    
+    // Auto-usuń po 15 sekundach
+    setTimeout(() => {
+        const t = document.getElementById('sys-toast');
+        if (t) t.remove();
+    }, 15000);
 });
 
 // ── CLOSE MODALS ON BACKGROUND CLICK ───────────────────────────
