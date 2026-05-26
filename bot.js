@@ -24,7 +24,7 @@ const noblox = require('noblox.js');
 const axios  = require('axios');
 
 // ── KONFIGURACJA ──────────────────────────────────────────────
-const ROBLOX_COOKIE = process.env.ROBLOX_COOKIE || 'WKLEJ_COOKIE_TUTAJ';
+const ROBLOX_COOKIE = process.env.ROBLOX_COOKIE || '';
 const BOT_SECRET    = process.env.BOT_SECRET    || 'super-tajny-klucz-bota-123';
 const SERVER_URL    = process.env.SERVER_URL    || 'http://localhost:5000';
 const POLL_MS       = 30_000; // co 30 sekund sprawdzamy
@@ -187,7 +187,11 @@ function fmtNumber(n) {
 }
 
 // ── START ─────────────────────────────────────────────────────
-async function start() {
+async function startBot() {
+    if (!ROBLOX_COOKIE) {
+        console.warn('[BOT] Pomijam — brak ROBLOX_COOKIE. Ustaw zmienną środowiskową.');
+        return;
+    }
     console.log('[BOT] Uruchamianie...');
 
     // Zaloguj się przez cookie
@@ -198,7 +202,7 @@ async function start() {
     } catch (e) {
         console.error('[BOT] BŁĄD LOGOWANIA:', e.message);
         console.error('[BOT] Sprawdź ROBLOX_COOKIE w .env');
-        process.exit(1);
+        return; // nie wychodź z procesu — server ma dalej działać
     }
 
     // Uruchom pętlę
@@ -207,4 +211,10 @@ async function start() {
     setInterval(processPendingDeposits, POLL_MS);
 }
 
-start();
+// Gdy uruchomiony bezpośrednio: node bot.js
+if (require.main === module) {
+    startBot();
+}
+
+// Gdy zaimportowany: const { startBot } = require('./bot.js')
+module.exports = { startBot };

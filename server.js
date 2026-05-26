@@ -822,6 +822,77 @@ app.post('/api/admin/requests/:id/reject', requireAdmin, (req, res) => {
     });
 });
 
+// ── ADMIN: GRACZE / BAN / SALDO ───────────────────────────────
+app.get('/api/admin/players', requireAdmin, (req, res) => {
+    db.find({}).sort({ username: 1 }).exec((err, docs) => {
+        if (err) return res.json({ players: [] });
+        // dodaj balance/banned jeśli nie istnieją
+        const players = (docs || []).map(p => ({
+            _id: p._id,
+            username: p.username || 'Unknown',
+            avatarUrl: p.avatarUrl || '',
+            balance: p.balance || 0,
+            banned: !!p.banned,
+            createdAt: p.createdAt || 0
+        }));
+        res.json({ players });
+    });
+});
+
+app.post('/api/admin/players/:id/ban', requireAdmin, (req, res) => {
+    db.update({ _id: req.params.id }, { $set: { banned: true } }, {}, (err) => {
+        if (err) return res.status(500).json({ message: 'Błąd bana.' });
+        res.json({ ok: true });
+    });
+});
+
+app.post('/api/admin/players/:id/unban', requireAdmin, (req, res) => {
+    db.update({ _id: req.params.id }, { $set: { banned: false } }, {}, (err) => {
+        if (err) return res.status(500).json({ message: 'Błąd odbanowania.' });
+        res.json({ ok: true });
+    });
+});
+
+app.post('/api/admin/players/:id/balance', requireAdmin, (req, res) => {
+    const amount = parseInt(req.body.amount);
+    if (isNaN(amount) || amount < 0) return res.status(400).json({ message: 'Podaj prawidłową kwotę (0+).' });
+    db.update({ _id: req.params.id }, { $set: { balance: amount } }, {}, (err) => {
+        if (err) return res.status(500).json({ message: 'Błąd zapisu salda.' });
+        res.json({ ok: true, balance: amount });
+    });
+});
+
+app.get('/api/admin/active-games', requireAdmin, (req, res) => {
+    const games = [...activeGames.values()].map(g => ({
+        id: g.id,
+        totalValue: g.totalValue || 0,
+        joinValue: g.joinValue || 0,
+        status: g.status,
+        createdAt: g.createdAt,
+        creator: g.creator ? { username: g.creator.username, robloxId: g.creator.robloxId, side: g.creator.side } : null,
+        joiner: g.joiner ? { username: g.joiner.username, robloxId: g.joiner.robloxId, side: g.joiner.side } : null
+    }));
+    // także gry z lobby (zapisane ale bez socketów)
+    lobbyDb.find({ status: 'waiting' }, (err, lobbyDocs) => {
+        if (lobbyDocs) {
+            lobbyDocs.forEach(doc => {
+                if (!games.find(g => g.id === doc.id)) {
+                    games.push({
+                        id: doc.id,
+                        totalValue: doc.totalValue || 0,
+                        joinValue: 0,
+                        status: 'waiting',
+                        createdAt: doc.createdAt,
+                        creator: doc.creator ? { username: doc.creator.username, robloxId: doc.creator.robloxId, side: doc.creator.side } : null,
+                        joiner: null
+                    });
+                }
+            });
+        }
+        res.json({ games: games.sort((a, b) => b.createdAt - a.createdAt) });
+    });
+});
+
 // ── ESCROW DB (itemy zablokowane podczas coinflip) ─────────────
 const escrowDb = new Datastore({ filename: path.join(__dirname, 'baza_escrow.db'), autoload: true });
 
@@ -1052,4 +1123,19 @@ server.listen(PORT, '0.0.0.0', () => {
         console.log(`   (nie wykryto adresu LAN — sprawdź ipconfig)`);
     }
     console.log(`\n🔐 Admin panel:  http://localhost:${PORT}/admin  (token z env: ADMIN_TOKEN)\n`);
+
+    // ── OPCJONALNY BOT ────────────────────────────────────────
+    // Włącz przez ustawienie zmiennej ENABLE_BOT=true i ROBLOX_COOKIE
+    if (process.env.ENABLE_BOT === 'true') {
+        console.log('[SERVER] ENABLE_BOT=true — uruchamiam bota...');
+        try {
+            const { startBot } = require('./bot.js');
+            startBot();
+        } catch (e) {
+            console.warn('[SERVER] Bot nie mógł zostać uruchomiony:', e.message);
+            console.warn('[SERVER] Sprawdź czy biblioteki są zainstalowane (npm install)');
+        }
+    } else {
+        console.log('[SERVER] Bot pominięty (ustaw ENABLE_BOT=true i ROBLOX_COOKIE by włączyć)');
+    }
 });
