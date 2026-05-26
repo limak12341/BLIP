@@ -54,6 +54,14 @@ function safeStr(v) {
     return String(v || '').trim();
 }
 
+function fmt(n) {
+    const v = Number(n);
+    if (v < 1000) return String(v);
+    if (v < 1_000_000) return (v / 1000).toFixed(v < 10_000 ? 1 : 0) + 'K';
+    if (v < 1_000_000_000) return (v / 1_000_000).toFixed(v < 10_000_000 ? 1 : 0) + 'M';
+    return (v / 1_000_000_000).toFixed(v < 10_000_000_000 ? 1 : 0) + 'B';
+}
+
 function newId(prefix) {
     return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -682,6 +690,37 @@ app.get('/api/leaderboard', (req, res) => {
 
         res.json({ leaderboard });
     });
+});
+
+// ── PROMO CODE ───────────────────────────────────────────────────
+app.post('/api/promo/redeem', requireLogin, (req, res) => {
+    try {
+        const { code } = req.body;
+        if (!code || !code.trim()) return res.status(400).json({ message: 'Wpisz kod promocyjny!' });
+
+        const codeStr = code.trim().toUpperCase();
+        const codesDb = Datastore.create({ filename: path.join(__dirname, 'promocodes.db'), autoload: true });
+        codesDb.findOne({ code: codeStr, active: true }, (err, doc) => {
+            if (err || !doc) return res.status(400).json({ message: 'Nieprawidłowy lub wygasły kod promocyjny!' });
+            if (doc.maxUses && doc.usedCount >= doc.maxUses) return res.status(400).json({ message: 'Kod został już wykorzystany maksymalną liczbę razy!' });
+
+            db.findOne({ _id: req.session.robloxId }, (err2, user) => {
+                if (err2 || !user) return res.status(400).json({ message: 'Nie znaleziono użytkownika' });
+                const usedCodes = user.usedCodes || [];
+                if (usedCodes.includes(doc.code)) return res.status(400).json({ message: 'Już wykorzystałeś ten kod!' });
+
+                const reward = doc.reward || 0;
+                const newBalance = (user.balance || 0) + reward;
+                db.update({ _id: req.session.robloxId }, { $set: { balance: newBalance }, $push: { usedCodes: doc.code } }, {}, (err3) => {
+                    if (err3) return res.status(500).json({ message: 'Błąd zapisu' });
+                    codesDb.update({ _id: doc._id }, { $inc: { usedCount: 1 } }, {}, () => {});
+                    res.json({ success: true, reward, message: `🎉 Otrzymałeś 🪙 ${fmt(reward)}!` });
+                });
+            });
+        });
+    } catch (e) {
+        res.status(500).json({ message: 'Błąd serwera' });
+    }
 });
 
 // ── PROFIL: STATYSTYKI ────────────────────────────────────────

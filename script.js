@@ -38,7 +38,7 @@ const lobbyCount      = document.getElementById('lobby-count');
 const historyWrap     = document.getElementById('history-table-wrap');
 const historySummary  = document.getElementById('history-summary');
 
-let currentSidebarTab = 'coinflip';
+let currentSidebarTab = 'leaderboard';
 let currentSubtab     = 'lobby';
 
 const inventoryListEl  = document.getElementById('inventory-list');
@@ -95,7 +95,7 @@ socket.on('sessionOk', (data) => {
     document.getElementById('ps-username').textContent = data.username;
     refreshProfileStats();
     socket.emit('getHistory');
-    showTab('coinflip');
+    showTab('leaderboard');
 });
 
 socket.on('sessionNone', () => { loginOverlay.style.display = 'flex'; });
@@ -185,6 +185,50 @@ window.openRules = function() {
 window.closeRules = function() {
     document.getElementById('rules-modal').style.display = 'none';
 };
+
+// ── PROMO CODE ────────────────────────────────────────────────
+window.openPromoCode = function() {
+    document.getElementById('promo-input').value = '';
+    document.getElementById('promo-message').style.display = 'none';
+    document.getElementById('promo-message').className = 'promo-message';
+    document.getElementById('promo-modal').style.display = 'flex';
+};
+window.closePromoCode = function() {
+    document.getElementById('promo-modal').style.display = 'none';
+};
+
+window.redeemPromoCode = async function() {
+    const input = document.getElementById('promo-input');
+    const code = input.value.trim();
+    if (!code) {
+        showPromoMessage('Wpisz kod promocyjny!', 'error');
+        return;
+    }
+    const btn = document.querySelector('.promo-submit-btn');
+    btn.disabled = true;
+    btn.textContent = 'Sprawdzanie...';
+    try {
+        const data = await apiJson('/api/promo/redeem', {
+            method: 'POST',
+            body: JSON.stringify({ code })
+        });
+        if (data.success) {
+            showPromoMessage(data.message || '✅ Kod zrealizowany!', 'success');
+            input.value = '';
+        }
+    } catch (e) {
+        showPromoMessage(e.message || 'Błąd realizacji kodu', 'error');
+    }
+    btn.disabled = false;
+    btn.textContent = 'Zrealizuj';
+};
+
+function showPromoMessage(text, type) {
+    const el = document.getElementById('promo-message');
+    el.textContent = text;
+    el.className = 'promo-message ' + type;
+    el.style.display = 'block';
+}
 
 // ── TABS ──────────────────────────────────────────────────────
 window.showTab = function(tab) {

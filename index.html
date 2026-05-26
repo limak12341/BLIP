@@ -75,11 +75,9 @@
     <div class="sidebar-inner">
       <div class="sidebar-logo">B<span>FLIP</span></div>
 
+      <!-- SECTION: GAMES -->
+      <div class="sidebar-section-label">GAMES</div>
       <nav class="sidebar-nav">
-        <button class="sidebar-tab active" data-tab="leaderboard" onclick="showTab('leaderboard')">
-          <span class="st-icon">🏆</span>
-          <span class="st-label">Leaderboard</span>
-        </button>
         <button class="sidebar-tab" data-tab="coinflip" onclick="showTab('coinflip')">
           <span class="st-icon">⚡</span>
           <span class="st-label">Coinflip</span>
@@ -90,7 +88,25 @@
         </button>
       </nav>
 
+      <!-- SECTION: COMMUNITY -->
+      <div class="sidebar-section-label">COMMUNITY</div>
+      <nav class="sidebar-nav">
+        <button class="sidebar-link" onclick="openPromoCode()">
+          <span class="st-icon">🎁</span>
+          <span class="st-label">Promo Code</span>
+        </button>
+      </nav>
+
       <div class="sidebar-spacer"></div>
+
+      <!-- SECTION: MORE -->
+      <div class="sidebar-section-label">MORE</div>
+      <nav class="sidebar-nav">
+        <button class="sidebar-tab active" data-tab="leaderboard" onclick="showTab('leaderboard')">
+          <span class="st-icon">🏆</span>
+          <span class="st-label">Leaderboard</span>
+        </button>
+      </nav>
 
       <div class="sidebar-bottom">
         <div class="sidebar-user" id="sidebar-user" style="display:none" onclick="toggleProfileStats()">
@@ -547,6 +563,33 @@
         <div class="rules-section-icon">🏆</div>
         <h3>Ranking</h3>
         <p>Leaderboard pokazuje top 50 graczy według zysku netto. Im więcej wygrywasz, tym wyżej w rankingu!</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: PROMO CODE -->
+<div id="promo-modal" class="modal-overlay">
+  <div class="modal modal-promo">
+    <div class="modal-header">
+      <span class="modal-title">🎁 Promo Code</span>
+      <button class="modal-close" onclick="closePromoCode()">✕</button>
+    </div>
+    <div class="promo-content">
+      <div class="promo-icon-wrap">
+        <div class="promo-big-icon">🎁</div>
+      </div>
+      <p class="promo-sub">Wpisz kod promocyjny i odbierz darmowe 🪙!</p>
+      <div class="promo-input-wrap">
+        <input type="text" id="promo-input" class="promo-input" placeholder="NP. WELCOME100" maxlength="30" autocomplete="off">
+        <button class="promo-submit-btn" onclick="redeemPromoCode()">Zrealizuj</button>
+      </div>
+      <div id="promo-message" class="promo-message" style="display:none"></div>
+      <div class="promo-history" id="promo-history">
+        <div class="promo-history-title">Wykorzystane kody</div>
+        <div id="promo-history-list" class="promo-history-list">
+          <div class="promo-empty">Brak wykorzystanych kodów</div>
+        </div>
       </div>
     </div>
   </div>

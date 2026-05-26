@@ -15,7 +15,7 @@
   --purple:  #7c5cfc;
   --text:    #e8eaf6;
   --muted:   #6b7a99;
-  --sidebar-w: 220px;
+  --sidebar-w: 260px;
 }
 
 /* ── THEME: White ─────────────────────────── */
@@ -116,13 +116,25 @@ body::before {
 
 .sidebar-logo {
   font-family: 'Orbitron', monospace;
-  font-size: 1.3rem;
+  font-size: 1.4rem;
   font-weight: 900;
   text-align: center;
-  padding: 8px 0 18px;
+  padding: 6px 0 16px;
   letter-spacing: 2px;
 }
 .sidebar-logo span { color: var(--purple); }
+
+/* ── Section labels (GAMES, COMMUNITY, MORE) ── */
+.sidebar-section-label {
+  font-size: .6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: rgba(107,122,153,.4);
+  padding: 14px 14px 6px;
+  font-family: 'Inter', sans-serif;
+  user-select: none;
+}
 
 /* Nav tabs */
 .sidebar-nav {
@@ -136,7 +148,7 @@ body::before {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 14px;
+  padding: 11px 14px;
   background: transparent;
   border: none;
   border-radius: 12px;
@@ -159,8 +171,8 @@ body::before {
   box-shadow: inset 3px 0 0 var(--purple);
 }
 .sidebar-tab .st-icon {
-  font-size: 1.1rem;
-  width: 24px;
+  font-size: 1.15rem;
+  width: 26px;
   text-align: center;
   flex-shrink: 0;
 }
@@ -215,7 +227,7 @@ body::before {
 }
 .sidebar-user.open .sidebar-chevron { transform: rotate(90deg); }
 
-/* Sidebar link (like Rules) */
+/* Sidebar link (like Rules, Promo Code) */
 .sidebar-link {
   display: flex;
   align-items: center;
@@ -549,6 +561,137 @@ body::before {
   line-height: 1.6;
 }
 .rules-section p strong { color: var(--text); }
+
+/* ════════════════════════════════════════════
+   PROMO CODE MODAL
+   ════════════════════════════════════════════ */
+.modal-promo {
+  width: 400px;
+  text-align: center;
+}
+.promo-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+.promo-icon-wrap {
+  margin-bottom: 4px;
+}
+.promo-big-icon {
+  font-size: 4rem;
+  animation: promoBounce 2s ease-in-out infinite;
+}
+@keyframes promoBounce {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-8px) scale(1.05); }
+}
+.promo-sub {
+  color: var(--muted);
+  font-size: .85rem;
+  line-height: 1.5;
+}
+.promo-input-wrap {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+.promo-input {
+  flex: 1;
+  padding: 14px 16px;
+  background: var(--surf2);
+  border: 1px solid var(--border2);
+  border-radius: 12px;
+  color: var(--text);
+  font-size: 1.1rem;
+  font-family: 'Orbitron', monospace;
+  font-weight: 700;
+  outline: none;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  transition: border-color .2s, box-shadow .2s;
+}
+.promo-input:focus {
+  border-color: var(--purple);
+  box-shadow: 0 0 0 3px rgba(124,92,252,.12);
+}
+.promo-input::placeholder {
+  color: rgba(107,122,153,.4);
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  font-size: .78rem;
+  letter-spacing: .5px;
+  text-transform: none;
+}
+.promo-submit-btn {
+  padding: 14px 20px;
+  background: linear-gradient(135deg, var(--purple), #9b7eff);
+  border: none;
+  border-radius: 12px;
+  color: #fff;
+  font-size: .85rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: .2s;
+  font-family: inherit;
+  white-space: nowrap;
+  box-shadow: 0 4px 16px rgba(124,92,252,.3);
+}
+.promo-submit-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 24px rgba(124,92,252,.4);
+}
+.promo-submit-btn:disabled {
+  background: var(--surf3);
+  color: var(--muted);
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+.promo-message {
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: .85rem;
+  font-weight: 700;
+  line-height: 1.5;
+}
+.promo-message.success {
+  background: rgba(46,213,115,.1);
+  color: var(--green);
+  border: 1px solid rgba(46,213,115,.25);
+}
+.promo-message.error {
+  background: rgba(232,65,24,.1);
+  color: var(--red);
+  border: 1px solid rgba(232,65,24,.2);
+}
+.promo-history {
+  width: 100%;
+  margin-top: 4px;
+}
+.promo-history-title {
+  font-size: .7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--muted);
+  margin-bottom: 8px;
+  text-align: left;
+}
+.promo-history-list {
+  background: var(--surf2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  min-height: 40px;
+}
+.promo-empty {
+  color: var(--muted);
+  font-size: .78rem;
+  text-align: center;
+  padding: 6px 0;
+}
 
 /* ════════════════════════════════════════════
    LOGIN
@@ -1163,6 +1306,7 @@ body::before {
 /* Tablet / small desktop */
 @media (max-width: 900px) {
   :root { --sidebar-w: 64px; }
+  .sidebar-section-label { display: none; }
   .sidebar-tab { justify-content: center; padding: 12px 8px; }
   .sidebar-tab .st-label { display: none; }
   .sidebar-tab .st-icon { font-size: 1.3rem; width: auto; }
@@ -1175,6 +1319,7 @@ body::before {
   .sidebar-link .st-label { display: none; }
   .sidebar-link .st-icon { font-size: 1.2rem; width: auto; }
   .sidebar .profile-stats-panel { display: none !important; }
+  .sidebar-nav { margin-top: 0; }
   .lb-head, .lb-row { grid-template-columns: 36px 1fr 44px 50px 50px 70px; gap: 4px; padding: 10px 10px; font-size: .68rem; }
   .lb-avatar { width: 28px; height: 28px; }
   .lb-avatar-empty { width: 28px; height: 28px; font-size: .65rem; }
@@ -1185,6 +1330,7 @@ body::before {
 /* Mobile */
 @media (max-width: 768px) {
   :root { --sidebar-w: 0px; }
+  .sidebar-section-label { display: none; }
 
   .app-layout { flex-direction: column; }
 
@@ -1334,6 +1480,7 @@ body::before {
   .modal-title { font-size: .85rem; }
   .modal-wide { width: 95vw; }
   .modal-rules { width: 95vw; }
+  .modal-promo { width: 92vw; }
 
   .lb-header { padding: 16px; }
   .lb-title { font-size: 1.1rem; }
@@ -1394,6 +1541,7 @@ body::before {
   .lb-avatar { width: 20px; height: 20px; }
   
   .modal { padding: 16px 12px; }
+  .modal-promo { width: 92vw; }
   
   .sidebar .profile-stats-panel { width: 290px; }
 }
