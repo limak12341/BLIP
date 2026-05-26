@@ -727,15 +727,36 @@ app.post('/api/promo/redeem', requireLogin, (req, res) => {
 app.get('/api/profile/stats', requireLogin, (req, res) => {
     getHistory(req.session.robloxId, (records) => {
         if (!records.length) {
-            return res.json({ total: 0, wins: 0, losses: 0, profit: 0 });
+            return res.json({ total: 0, wins: 0, losses: 0, profit: 0, totalWagered: 0, level: 0, levelName: 'Basic', nextLevelXp: 10000 });
         }
-        let wins = 0, losses = 0, profit = 0;
+        let wins = 0, losses = 0, profit = 0, totalWagered = 0;
         records.forEach(r => {
             const me = r.creator.robloxId === req.session.robloxId ? r.creator : r.joiner;
+            const myBet = r.creator.robloxId === req.session.robloxId ? (r.totalValue || 0) : (r.joinValue || 0);
+            totalWagered += myBet;
             if (me.won) { wins++; profit += (r.totalValue || 0); }
             else { losses++; profit -= (r.totalValue || 0); }
         });
-        res.json({ total: records.length, wins, losses, profit });
+        const LEVEL_XP = 10000;
+        const level = Math.min(99, Math.floor(totalWagered / LEVEL_XP));
+        const xpInLevel = totalWagered % LEVEL_XP;
+        const levelNames = ['Basic','Enthusiast','Wagered','Wagered+','Maxed Wagered++'];
+        let levelName = levelNames[0];
+        if (level >= 99) levelName = levelNames[4];
+        else if (level >= 51) levelName = levelNames[3];
+        else if (level >= 16) levelName = levelNames[2];
+        else if (level >= 1) levelName = levelNames[1];
+        res.json({
+            total: records.length,
+            wins,
+            losses,
+            profit,
+            totalWagered,
+            level,
+            levelName,
+            xpInLevel,
+            nextLevelXp: level >= 99 ? 0 : LEVEL_XP
+        });
     });
 });
 

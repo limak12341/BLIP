@@ -880,6 +880,94 @@ body::before {
 .logout-btn:hover { color: var(--text); }
 
 /* ════════════════════════════════════════════
+   LEVEL BADGE
+   ════════════════════════════════════════════ */
+.level-badge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surf2);
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  padding: 5px 14px 5px 10px;
+  cursor: default;
+  transition: all .25s;
+  position: relative;
+  overflow: hidden;
+}
+.level-badge::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(124,92,252,.06), transparent 60%);
+  pointer-events: none;
+  transition: opacity .3s;
+}
+.level-badge:hover::before { opacity: .5; }
+.level-badge:hover { border-color: rgba(124,92,252,.3); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,.2); }
+
+.level-icon { font-size: 1.1rem; position: relative; z-index: 1; }
+.level-info { display: flex; flex-direction: column; gap: 1px; position: relative; z-index: 1; }
+.level-name {
+  font-size: .68rem;
+  font-weight: 800;
+  color: var(--text);
+  line-height: 1.1;
+  white-space: nowrap;
+  transition: color .3s;
+}
+.level-num {
+  font-size: .55rem;
+  font-weight: 600;
+  color: var(--muted);
+  line-height: 1.1;
+  letter-spacing: .5px;
+  transition: color .3s;
+}
+.level-bar-wrap {
+  width: 52px;
+  height: 4px;
+  background: var(--surf3);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+}
+.level-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: var(--muted);
+  transition: width .5s ease, background .3s;
+}
+
+/* ── Level tier colors ── */
+.level-badge.lvl-enth .level-bar-fill { background: linear-gradient(90deg, #2ed573, #7bed9f); }
+.level-badge.lvl-enth .level-icon { color: #2ed573; }
+.level-badge.lvl-enth .level-name { color: #2ed573; }
+.level-badge.lvl-enth .level-num { color: rgba(46,213,115,.7); }
+
+.level-badge.lvl-pro .level-bar-fill { background: linear-gradient(90deg, #7c5cfc, #a29bfe); }
+.level-badge.lvl-pro .level-icon { color: #a29bfe; }
+.level-badge.lvl-pro .level-name { color: #a29bfe; }
+.level-badge.lvl-pro .level-num { color: rgba(124,92,252,.7); }
+
+.level-badge.lvl-ultra .level-bar-fill { background: linear-gradient(90deg, #f0b429, #ffd166); }
+.level-badge.lvl-ultra .level-icon { color: #ffd166; }
+.level-badge.lvl-ultra .level-name { color: #ffd166; }
+.level-badge.lvl-ultra .level-num { color: rgba(240,180,41,.7); }
+
+.level-badge.lvl-mega .level-bar-fill { background: linear-gradient(90deg, #e84118, #ff6b6b, #e84118); background-size: 200% 100%; animation: lvlShimmer 1.5s ease-in-out infinite; }
+.level-badge.lvl-mega .level-icon { filter: drop-shadow(0 0 4px rgba(232,65,24,.6)); }
+.level-badge.lvl-mega .level-name { color: #ff6b6b; text-shadow: 0 0 12px rgba(232,65,24,.4); }
+.level-badge.lvl-mega .level-num { color: rgba(232,65,24,.7); }
+.level-badge.lvl-mega { border-color: rgba(232,65,24,.3); box-shadow: 0 0 20px rgba(232,65,24,.12); }
+
+@keyframes lvlShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ════════════════════════════════════════════
    LOBBY TOOLBAR
    ════════════════════════════════════════════ */
 .lobby-toolbar {
@@ -1509,6 +1597,11 @@ body::before {
   .balance-box { padding: 4px 10px; font-size: .7rem; }
   .logout-btn { padding: 4px 8px; font-size: .65rem; }
   .theme-btn { width: 32px; height: 32px; font-size: 1rem; }
+  .level-badge { padding: 4px 10px 4px 8px; gap: 6px; }
+  .level-bar-wrap { width: 36px; }
+  .level-name { font-size: .6rem; }
+  .level-num { font-size: .5rem; }
+  .level-icon { font-size: .95rem; }
 
   .main-container { margin: 12px auto; padding: 0 10px; padding-bottom: 76px; }
 
@@ -1668,6 +1761,12 @@ body::before {
   .balance-box { font-size: .6rem; padding: 3px 7px; }
   .theme-btn { width: 28px; height: 28px; font-size: .85rem; }
   .logout-btn { padding: 3px 6px; font-size: .6rem; }
+  .level-badge { padding: 3px 6px 3px 5px; gap: 4px; border-radius: 8px; }
+  .level-bar-wrap { display: none; }
+  .level-info { gap: 0; }
+  .level-name { font-size: .52rem; }
+  .level-num { font-size: .45rem; }
+  .level-icon { font-size: .85rem; }
   
   .main-container { padding-bottom: 68px; }
   

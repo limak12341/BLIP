@@ -94,6 +94,7 @@ socket.on('sessionOk', (data) => {
     }
     document.getElementById('ps-username').textContent = data.username;
     refreshProfileStats();
+    refreshLevel();
     socket.emit('getHistory');
     showTab('leaderboard');
 });
@@ -129,6 +130,28 @@ window.refreshProfileStats = async function() {
         return stats;
     } catch (e) {
         return { total: 0, wins: 0, losses: 0, profit: 0 };
+    }
+};
+
+// ── LEVEL SYSTEM ──────────────────────────────────────────────
+window.refreshLevel = async function() {
+    const badge = document.getElementById('level-badge');
+    if (!badge) return;
+    try {
+        const stats = await apiJson('/api/profile/stats');
+        const { level = 0, levelName = 'Basic', xpInLevel = 0, nextLevelXp = 10000 } = stats;
+        document.getElementById('level-name').textContent = levelName;
+        document.getElementById('level-num').textContent = `Lv. ${level}`;
+        const pct = nextLevelXp > 0 ? Math.min(100, (xpInLevel / nextLevelXp) * 100) : 100;
+        document.getElementById('level-bar-fill').style.width = pct + '%';
+        // Ustaw kolor level badge w zależności od tieru
+        badge.className = 'level-badge';
+        if (level >= 99) badge.classList.add('lvl-mega');
+        else if (level >= 51) badge.classList.add('lvl-ultra');
+        else if (level >= 16) badge.classList.add('lvl-pro');
+        else if (level >= 1) badge.classList.add('lvl-enth');
+    } catch (e) {
+        // cicho
     }
 };
 
@@ -892,6 +915,7 @@ socket.on('historyData', (records) => {
           ${rows}
         </div>`;
     refreshProfileStats();
+    refreshLevel();
 });
 
 // ── DEPOZYT / INVENTARZ ───────────────────────────────────────
