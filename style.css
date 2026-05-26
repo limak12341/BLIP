@@ -574,6 +574,10 @@ body::before {
   flex-direction: column;
   align-items: center;
   gap: 16px;
+  width: 100%;
+}
+.promo-content > * {
+  max-width: 100%;
 }
 .promo-icon-wrap {
   margin-bottom: 4px;
@@ -886,6 +890,32 @@ body::before {
 .lobby-info { display: flex; align-items: baseline; gap: 8px; }
 .lobby-count { font-family: 'Orbitron', monospace; font-size: 1.3rem; font-weight: 700; color: var(--purple); }
 .lobby-sub { font-size: .85rem; color: var(--muted); }
+.lobby-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-history {
+  padding: 11px 18px;
+  background: var(--surf2);
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: .85rem;
+  font-weight: 700;
+  letter-spacing: .3px;
+  cursor: pointer;
+  transition: .2s;
+  font-family: inherit;
+  white-space: nowrap;
+}
+.btn-history:hover {
+  color: var(--text);
+  border-color: rgba(255,255,255,.2);
+  background: var(--surf3);
+}
+
 .btn-create {
   padding: 11px 24px; background: var(--purple); color: #fff;
   border: none; border-radius: 10px;
@@ -1086,9 +1116,28 @@ body::before {
 /* ════════════════════════════════════════════
    DEPOZYT / INVENTARZ
    ════════════════════════════════════════════ */
-.dep-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.dep-card { background: var(--surf); border: 1px solid var(--border); border-radius: 14px; padding: 16px; min-height: 220px; }
+/* dep-grid moved up to dep-card section */
+.dep-card {
+  background: var(--surf);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  min-height: 220px;
+}
 .dep-card-title { font-family: 'Orbitron', monospace; font-weight: 800; font-size: .9rem; margin-bottom: 12px; color: var(--text); }
+
+/* Centered dep-grid on wider screens */
+.dep-grid-wrap {
+  display: flex;
+  justify-content: center;
+}
+.dep-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  width: 100%;
+  max-width: 820px;
+}
 .empty-mini { padding: 14px; border-radius: 12px; border: 1px dashed var(--border2); color: var(--muted); text-align: center; background: rgba(255,255,255,.03); }
 .inv-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .inv-item { background: var(--surf2); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
@@ -1327,13 +1376,16 @@ body::before {
   .lb-stat { font-size: .7rem; }
 }
 
-/* Mobile */
+/* ════════════════════════════════════════════
+   MOBILE (≤768px)
+   ════════════════════════════════════════════ */
 @media (max-width: 768px) {
   :root { --sidebar-w: 0px; }
   .sidebar-section-label { display: none; }
 
   .app-layout { flex-direction: column; }
 
+  /* ── Bottom nav bar ── */
   .sidebar {
     position: fixed;
     bottom: 0;
@@ -1341,62 +1393,93 @@ body::before {
     left: 0;
     right: 0;
     width: 100%;
-    height: 58px;
+    height: 62px;
     flex-direction: row;
     border-right: none;
     border-top: 1px solid var(--border);
     z-index: 200;
     backdrop-filter: blur(16px);
-    background: rgba(11,14,23,.96);
+    background: rgba(11,14,23,.97);
+    padding-bottom: env(safe-area-inset-bottom, 0);
   }
   .sidebar-inner {
     flex-direction: row;
     align-items: center;
-    justify-content: space-around;
-    padding: 0 8px;
+    justify-content: center;
+    padding: 0 6px;
     width: 100%;
     height: 100%;
+    gap: 1px;
   }
   .sidebar-logo { display: none; }
+
+  /* Główna nawigacja - grupujemy tab i linki w jeden flex rząd */
   .sidebar-nav {
     flex-direction: row;
-    gap: 2px;
+    gap: 1px;
     margin-top: 0;
-    flex: 1;
+    flex: 0 1 auto;
     justify-content: center;
   }
+
+  /* Na mobile ukrywamy tylko etykiety sekcji — wszystkie przyciski lądują w jednym rzędzie */
+  .sidebar-section-label { display: none !important; }
+
   .sidebar-tab {
-    padding: 8px 10px;
-    border-radius: 10px;
-    gap: 4px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    gap: 2px;
     flex-direction: column;
     align-items: center;
-    min-width: 0;
-    font-size: .6rem;
+    min-width: 48px;
+    font-size: .55rem;
+    font-weight: 600;
+    border: none;
+    position: relative;
   }
-  .sidebar-tab .st-icon { font-size: 1.1rem; }
-  .sidebar-tab .st-label { display: block; font-size: .58rem; }
-  .sidebar-tab.active { box-shadow: none; border-bottom: 2px solid var(--purple); border-radius: 0; background: transparent; }
+  .sidebar-tab .st-icon { font-size: 1.15rem; }
+  .sidebar-tab .st-label { display: block; font-size: .55rem; letter-spacing: 0; }
+  .sidebar-tab.active {
+    box-shadow: none;
+    border-bottom: none;
+    border-radius: 8px;
+    background: rgba(124,92,252,.15);
+    color: var(--purple);
+  }
+  .sidebar-tab.active::after {
+    content: '';
+    position: absolute;
+    bottom: 2px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 16px;
+    height: 3px;
+    border-radius: 3px;
+    background: var(--purple);
+  }
+
   .sidebar-spacer { display: none; }
+
+  /* Bottom section w rzędzie z resztą */
   .sidebar-bottom {
     flex-direction: row;
     border-top: none;
     margin-top: 0;
     padding-top: 0;
-    gap: 2px;
+    gap: 1px;
   }
-  .sidebar-user { padding: 8px 6px; gap: 4px; }
+  .sidebar-user { padding: 6px 4px; gap: 0; }
   .sidebar-username { display: none; }
   .sidebar-chevron { display: none; }
-  .sidebar-avatar { width: 28px; height: 28px; }
-  .sidebar-link { padding: 8px 6px; flex-direction: column; gap: 2px; font-size: .6rem; }
+  .sidebar-avatar { width: 26px; height: 26px; border-width: 1.5px; }
+  .sidebar-link { padding: 6px 8px; min-width: 42px; flex-direction: column; gap: 2px; font-size: .55rem; border-radius: 8px; }
   .sidebar-link .st-icon { font-size: 1.1rem; }
-  .sidebar-link .st-label { display: block; font-size: .58rem; }
+  .sidebar-link .st-label { display: block; font-size: .53rem; letter-spacing: 0; }
 
-  /* Profile panel on mobile: show as floating modal */
+  /* Profile panel na mobile: floating modal nad bottom barem */
   .sidebar .profile-stats-panel {
     position: fixed;
-    bottom: 70px;
+    bottom: 74px;
     left: 50%;
     transform: translateX(-50%);
     width: 320px;
@@ -1404,144 +1487,220 @@ body::before {
     z-index: 250;
     display: none !important;
     box-shadow: 0 12px 40px rgba(0,0,0,.6);
+    border-radius: 14px;
   }
   .sidebar .profile-stats-panel.open { display: block !important; }
-  .sidebar .profile-stats-panel::before { display: block; top: auto; bottom: -6px; left: 50%; transform: translateX(-50%) rotate(45deg); border-left: 1px solid var(--border2); border-top: none; border-bottom: 1px solid var(--border2); border-right: 1px solid var(--border2); }
+  .sidebar .profile-stats-panel::before {
+    display: block;
+    top: auto;
+    bottom: -6px;
+    left: 50%;
+    transform: translateX(-50%) rotate(45deg);
+    border-left: 1px solid var(--border2);
+    border-top: none;
+    border-bottom: 1px solid var(--border2);
+    border-right: 1px solid var(--border2);
+  }
 
-  .top-bar { height: 46px; padding: 0 10px; gap: 8px; }
-  .top-subtab { padding: 5px 10px; font-size: .72rem; }
-  .top-bar-right { gap: 6px; }
-  .balance-box { padding: 4px 10px; font-size: .72rem; }
-  .logout-btn { padding: 4px 8px; font-size: .68rem; }
-  .theme-btn { width: 32px; height: 32px; }
+  /* ── Top bar ── */
+  .top-bar { height: 46px; padding: 0 10px; gap: 6px; }
+  .top-subtab { padding: 5px 10px; font-size: .72rem; white-space: nowrap; }
+  .top-bar-right { gap: 5px; }
+  .balance-box { padding: 4px 10px; font-size: .7rem; }
+  .logout-btn { padding: 4px 8px; font-size: .65rem; }
+  .theme-btn { width: 32px; height: 32px; font-size: 1rem; }
 
-  .main-container { margin: 16px auto; padding: 0 10px; padding-bottom: 70px; }
+  .main-container { margin: 12px auto; padding: 0 10px; padding-bottom: 76px; }
 
-  .lobby-toolbar { flex-direction: column; gap: 10px; align-items: stretch; text-align: center; padding: 14px; }
-  .lobby-info { justify-content: center; }
-  .lobby-count { font-size: 1.1rem; }
-  .btn-create { padding: 10px 16px; font-size: .82rem; }
+  /* ── Lobby toolbar ── */
+  .lobby-toolbar {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 12px 14px;
+  }
+  .lobby-info { justify-content: center; gap: 4px; }
+  .lobby-count { font-size: 1rem; }
+  .lobby-sub { font-size: .75rem; }
+  .lobby-actions { gap: 6px; }
+  .btn-create { padding: 9px 14px; font-size: .78rem; }
+  .btn-history { padding: 9px 14px; font-size: .75rem; }
 
-  .game-card { flex-direction: column; padding: 16px; gap: 10px; }
+  /* ── Game cards ── */
+  .game-card {
+    flex-direction: column;
+    padding: 14px;
+    gap: 8px;
+    border-radius: 14px;
+  }
   .game-card::before { display: none; }
-  .gc-player { flex-direction: row; width: 100%; gap: 10px; justify-content: center; }
-  .gc-avatar { width: 44px; height: 44px; }
-  .gc-avatar-empty { width: 44px; height: 44px; font-size: 1.2rem; }
-  .gc-side-badge { width: 18px; height: 18px; font-size: .55rem; }
-  .gc-username { font-size: .78rem; }
-  .gc-waiting { font-size: .78rem; }
-  .gc-center { gap: 6px; }
-  .gc-vs { font-size: 1.2rem; }
-  .gc-bet { font-size: .85rem; }
+
+  .gc-player {
+    flex-direction: row;
+    width: 100%;
+    gap: 8px;
+    justify-content: center;
+  }
+  .gc-avatar { width: 40px; height: 40px; }
+  .gc-avatar-empty { width: 40px; height: 40px; font-size: 1rem; }
+  .gc-side-badge { width: 16px; height: 16px; font-size: .5rem; }
+  .gc-username { font-size: .75rem; }
+  .gc-waiting { font-size: .75rem; }
+
+  .gc-center { gap: 4px; }
+  .gc-vs { font-size: 1rem; }
+  .gc-bet { font-size: .8rem; }
+  .gc-gameid { font-size: .65rem; padding: 3px 10px; }
   .gc-items-row { max-width: 100%; justify-content: center; }
-  .gc-item-chip { font-size: .62rem; padding: 2px 6px; max-width: 80px; }
-  .gc-actions { flex-direction: row; align-items: center; justify-content: center; min-width: 0; width: 100%; flex-wrap: wrap; }
-  .btn-join, .btn-view, .btn-info, .btn-cancel { padding: 7px 14px; font-size: .75rem; width: auto; flex: 1; min-width: 60px; }
+  .gc-item-chip { font-size: .6rem; padding: 2px 6px; max-width: 80px; }
+
+  .gc-actions {
+    flex-direction: row;
+    align-items: stretch;
+    justify-content: center;
+    min-width: 0;
+    width: 100%;
+    display: flex;
+    gap: 6px;
+  }
+  .btn-join, .btn-view, .btn-info, .btn-cancel {
+    padding: 8px 12px;
+    font-size: .72rem;
+    width: auto;
+    flex: 1;
+    min-width: 0;
+    max-width: 120px;
+    white-space: nowrap;
+    border-radius: 8px;
+  }
   .btn-info-sm { display: none; }
-  .gc-waiting-label { font-size: .7rem; }
+  .gc-waiting-label { font-size: .68rem; }
 
-  .view-modal-inner { padding: 24px 16px; }
-  .view-avatar { width: 60px; height: 60px; }
-  .view-avatar-empty { width: 60px; height: 60px; font-size: 1.4rem; }
-  .view-side-badge { width: 22px; height: 22px; font-size: .65rem; }
-  .view-username { font-size: .8rem; }
-  .view-vs { font-size: 1.6rem; }
-  .view-coins { font-size: .8rem; }
+  /* ── Modals ── */
+  .view-modal-inner { padding: 20px 14px; }
+  .view-avatar { width: 56px; height: 56px; }
+  .view-avatar-empty { width: 56px; height: 56px; font-size: 1.3rem; }
+  .view-side-badge { width: 20px; height: 20px; font-size: .6rem; }
+  .view-username { font-size: .78rem; }
+  .view-vs { font-size: 1.4rem; }
+  .view-coins { font-size: .75rem; }
 
-  .res-avatar { width: 48px; height: 48px; }
-  .big-coin { width: 64px; height: 64px; }
-  .big-coin .coin-face span { font-size: .6rem; }
-  .res-name { font-size: .78rem; }
-  .res-banner { font-size: .9rem; padding: 10px 14px; min-height: 40px; }
-  .res-items-row { grid-template-columns: 1fr; gap: 10px; }
+  .res-avatar { width: 44px; height: 44px; }
+  .big-coin { width: 60px; height: 60px; }
+  .big-coin .coin-face span { font-size: .55rem; }
+  .res-name { font-size: .75rem; }
+  .res-banner { font-size: .85rem; padding: 10px 14px; min-height: 40px; }
+  .res-items-row { grid-template-columns: 1fr; gap: 8px; }
   .res-items-divider { display: none; }
-  .res-items-section { max-height: 200px; }
+  .res-items-section { max-height: 180px; }
   .ri-item { padding: 6px 8px; }
-  .ri-item-name { font-size: .72rem; }
-  .ri-item-meta { font-size: .65rem; }
+  .ri-item-name { font-size: .7rem; }
+  .ri-item-meta { font-size: .62rem; }
 
-  .gi-players { grid-template-columns: 1fr; gap: 10px; }
-  .gi-vs-col { padding: 8px 0; }
-  .gi-vs-circle { width: 36px; height: 36px; font-size: 1rem; }
-  .gi-avatar { width: 40px; height: 40px; }
-  .gi-player-name { font-size: .85rem; }
-  .gi-item { padding: 8px 10px; }
+  .gi-players { grid-template-columns: 1fr; gap: 8px; }
+  .gi-vs-col { padding: 6px 0; }
+  .gi-vs-circle { width: 32px; height: 32px; font-size: .9rem; }
+  .gi-avatar { width: 36px; height: 36px; }
+  .gi-player-name { font-size: .8rem; }
+  .gi-item { padding: 6px 8px; }
 
-  .history-header-bar { flex-direction: column; gap: 10px; padding: 14px; }
-  .history-summary { flex-wrap: wrap; justify-content: center; }
-  .ht-head, .ht-row { grid-template-columns: 36px 1fr 80px 70px 70px; gap: 6px; padding: 10px 12px; font-size: .72rem; }
-  .ht-num { font-size: .7rem; }
-  .ht-opp-avatar { width: 24px; height: 24px; }
-  .ht-opp-name { font-size: .78rem; }
-  .ht-bet { font-size: .72rem; }
-  .ht-result { font-size: .75rem; }
+  .history-header-bar { flex-direction: column; gap: 8px; padding: 12px; }
+  .history-summary { flex-wrap: wrap; justify-content: center; gap: 8px; }
+  .ht-head, .ht-row { grid-template-columns: 32px 1fr 70px 60px 60px; gap: 4px; padding: 8px 10px; font-size: .68rem; }
+  .ht-num { font-size: .65rem; }
+  .ht-opp-avatar { width: 22px; height: 22px; border-radius: 6px; }
+  .ht-opp-name { font-size: .72rem; }
+  .ht-bet { font-size: .68rem; }
+  .ht-result { font-size: .72rem; }
 
-  .modal { padding: 20px 16px; }
-  .modal-title { font-size: .85rem; }
+  .modal { padding: 18px 14px; border-radius: 16px; }
+  .modal-title { font-size: .82rem; }
   .modal-wide { width: 95vw; }
   .modal-rules { width: 95vw; }
   .modal-promo { width: 92vw; }
 
-  .lb-header { padding: 16px; }
-  .lb-title { font-size: 1.1rem; }
-  .lb-head, .lb-row { grid-template-columns: 32px 1fr 40px 44px 44px 62px; gap: 3px; padding: 8px 8px; font-size: .62rem; }
-  .lb-rank { font-size: .7rem; }
-  .lb-avatar { width: 24px; height: 24px; }
-  .lb-avatar-empty { width: 24px; height: 24px; font-size: .6rem; }
-  .lb-name { font-size: .72rem; }
-  .lb-stat { font-size: .62rem; }
+  .lb-header { padding: 14px; }
+  .lb-title { font-size: 1rem; }
+  .lb-head, .lb-row { grid-template-columns: 28px 1fr 36px 38px 38px 54px; gap: 2px; padding: 6px 6px; font-size: .6rem; }
+  .lb-rank { font-size: .65rem; }
+  .lb-avatar { width: 22px; height: 22px; }
+  .lb-avatar-empty { width: 22px; height: 22px; font-size: .55rem; }
+  .lb-name { font-size: .68rem; }
+  .lb-stat { font-size: .6rem; }
 
-  .jp-container { padding: 40px 20px; min-height: 300px; }
-  .jp-icon { font-size: 3rem; }
-  .jp-title { font-size: 1.2rem; }
+  .jp-container { padding: 32px 16px; min-height: 260px; }
+  .jp-icon { font-size: 2.6rem; }
+  .jp-title { font-size: 1.1rem; }
 
   .dep-grid { grid-template-columns: 1fr; }
-  .deposit-hint { font-size: .78rem; padding: 10px 12px; }
+  .deposit-hint { font-size: .75rem; padding: 10px 12px; }
 
   .login-box { width: 94vw; }
-  .login-content { padding: 28px 20px; }
-  .login-logo { font-size: 1.6rem; }
-  .login-coin { font-size: 1.8rem; }
-  .login-sub { font-size: .78rem; }
+  .login-content { padding: 24px 16px; }
+  .login-logo { font-size: 1.5rem; }
+  .login-coin { font-size: 1.6rem; }
+  .login-sub { font-size: .75rem; }
   .step-label { display: none !important; }
   .login-step.active .step-label { display: none !important; }
-  .code-box { font-size: 1rem; padding: 12px; }
+  .code-box { font-size: 1rem; padding: 10px 44px 10px 12px; }
   .pet-filters { display: none; }
-  .pet-search-results { max-height: 260px; }
+  .pet-search-results { max-height: 240px; }
   .inv-grid { grid-template-columns: 1fr; }
 }
 
-/* Very small mobile */
+/* ── Very small mobile (≤480px) ── */
 @media (max-width: 480px) {
-  .sidebar { height: 52px; }
-  .sidebar-tab { padding: 6px 6px; }
-  .sidebar-tab .st-icon { font-size: 1rem; }
+  .sidebar { height: 56px; }
+  .sidebar-tab { padding: 4px 6px; min-width: 40px; }
+  .sidebar-tab .st-icon { font-size: 1.05rem; }
   .sidebar-tab .st-label { font-size: .5rem; }
-  .sidebar-link { padding: 6px 6px; }
+  .sidebar-link { padding: 4px 6px; min-width: 36px; }
   .sidebar-link .st-icon { font-size: 1rem; }
-  .sidebar-link .st-label { font-size: .5rem; }
-  .sidebar-avatar { width: 24px; height: 24px; }
+  .sidebar-link .st-label { font-size: .48rem; }
+  .sidebar-avatar { width: 22px; height: 22px; }
+  .sidebar-user { padding: 4px 2px; }
 
-  .top-bar { height: 42px; padding: 0 8px; }
-  .top-subtab { padding: 4px 8px; font-size: .65rem; }
-  .balance-box { font-size: .65rem; padding: 3px 8px; }
+  .top-bar { height: 40px; padding: 0 6px; gap: 4px; }
+  .top-subtab { padding: 4px 7px; font-size: .62rem; }
+  .balance-box { font-size: .6rem; padding: 3px 7px; }
+  .theme-btn { width: 28px; height: 28px; font-size: .85rem; }
+  .logout-btn { padding: 3px 6px; font-size: .6rem; }
   
-  .game-card { padding: 12px; }
-  .gc-avatar { width: 36px; height: 36px; }
-  .gc-avatar-empty { width: 36px; height: 36px; font-size: 1rem; }
-  .gc-item-chip { max-width: 60px; font-size: .58rem; }
-  .btn-join, .btn-view, .btn-cancel { padding: 6px 10px; font-size: .68rem; }
+  .main-container { padding-bottom: 68px; }
   
-  .ht-head, .ht-row { grid-template-columns: 28px 1fr 60px 55px 55px; gap: 4px; padding: 8px 8px; font-size: .65rem; overflow-x: auto; }
-  .side-heads, .side-tails { font-size: .62rem; padding: 1px 5px; }
+  .lobby-actions { flex-wrap: wrap; justify-content: center; }
+  .btn-create, .btn-history { padding: 8px 12px; font-size: .72rem; }
+
+  .game-card { padding: 10px; gap: 6px; }
+  .gc-avatar { width: 32px; height: 32px; }
+  .gc-avatar-empty { width: 32px; height: 32px; font-size: .85rem; }
+  .gc-username { font-size: .7rem; }
+  .gc-vs { font-size: .85rem; }
+  .gc-bet { font-size: .72rem; }
+  .gc-gameid { font-size: .6rem; }
+  .gc-item-chip { max-width: 56px; font-size: .55rem; }
+  .btn-join, .btn-view, .btn-cancel, .btn-info { padding: 6px 8px; font-size: .65rem; }
   
-  .lb-head, .lb-row { grid-template-columns: 28px 1fr 34px 38px 38px 52px; gap: 2px; padding: 6px 6px; font-size: .58rem; }
-  .lb-name { font-size: .65rem; }
-  .lb-stat { font-size: .58rem; }
-  .lb-avatar { width: 20px; height: 20px; }
+  .ht-head, .ht-row { grid-template-columns: 26px 1fr 55px 50px 50px; gap: 3px; padding: 6px 6px; font-size: .6rem; overflow-x: auto; }
+  .side-heads, .side-tails { font-size: .58rem; padding: 1px 4px; }
+  .ht-opp-avatar { width: 18px; height: 18px; }
+  .ht-opp-name { font-size: .65rem; }
   
-  .modal { padding: 16px 12px; }
-  .modal-promo { width: 92vw; }
+  .lb-head, .lb-row { grid-template-columns: 24px 1fr 30px 32px 32px 46px; gap: 1px; padding: 5px 4px; font-size: .52rem; }
+  .lb-name { font-size: .6rem; }
+  .lb-stat { font-size: .52rem; }
+  .lb-avatar { width: 18px; height: 18px; }
+  .lb-rank { font-size: .58rem; }
   
-  .sidebar .profile-stats-panel { width: 290px; }
+  .modal { padding: 14px 10px; border-radius: 14px; }
+  .modal-promo { width: 94vw; }
+  .modal-wide { width: 97vw; }
+  
+  .sidebar .profile-stats-panel { width: 280px; }
+  
+  .history-header-bar { padding: 10px; }
+  .history-page-title { font-size: .82rem; }
 }

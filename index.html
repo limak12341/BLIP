@@ -167,7 +167,6 @@
       <div class="top-bar-left">
         <div class="top-subtabs" id="coinflip-subtabs" style="display:none">
           <button class="top-subtab active" data-subtab="lobby" onclick="showCoinflipSubtab('lobby')">⚡ Lobby</button>
-          <button class="top-subtab" data-subtab="history" onclick="showCoinflipSubtab('history')">📜 Historia</button>
           <button class="top-subtab" data-subtab="deposit" onclick="showCoinflipSubtab('deposit')">🎒 Depozyt</button>
         </div>
       </div>
@@ -220,7 +219,10 @@
               <span id="lobby-count" class="lobby-count">0 gier</span>
               <span class="lobby-sub">aktywnych w lobby</span>
             </div>
-            <button class="btn-create" id="btn-create" onclick="openCreateModal()">✦ Stwórz grę</button>
+            <div class="lobby-actions">
+              <button class="btn-history" onclick="showTab('coinflip');showCoinflipSubtab('history')">📜 Historia</button>
+              <button class="btn-create" id="btn-create" onclick="openCreateModal()">✦ Stwórz grę</button>
+            </div>
           </div>
           <div id="games-list" class="games-list">
             <div class="empty-lobby" id="empty-lobby">
@@ -258,6 +260,7 @@
               <button class="btn-create" style="background:rgba(255,255,255,.06);border:1px solid var(--border2);color:var(--text);box-shadow:none" onclick="openWithdrawModal()">Withdraw</button>
             </div>
           </div>
+          <div class="dep-grid-wrap">
           <div class="dep-grid">
             <div class="dep-card">
               <div class="dep-card-title">🎒 Twoje itemy</div>
@@ -269,6 +272,7 @@
               <div id="requests-list" class="req-list"></div>
               <div id="requests-empty" class="empty-mini" style="display:none">Brak zgłoszeń.</div>
             </div>
+          </div>
           </div>
           <div class="deposit-hint" style="margin-top:14px">
             Uwaga: PS99 to cudza gra, więc strona nie odczyta automatycznie trade. Depozyt/wypłata działa przez zgłoszenia i ręczne potwierdzenie admina.
