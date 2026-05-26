@@ -9,6 +9,25 @@ const { Server } = require('socket.io');
 
 // ── KONFIGURACJA ─────────────────────────────────────────────
 const ROBLOX_CLIENT_ID     = process.env.ROBLOX_CLIENT_ID || 'TWÓJ_CLIENT_ID';
+
+// Gemy — itemy jak huge/titanic, z nominałami
+const GEMS = [
+  { name: 'Gem 💎 1M',   value: 1_000_000 },
+  { name: 'Gem 💎 10M',  value: 10_000_000 },
+  { name: 'Gem 💎 25M',  value: 25_000_000 },
+  { name: 'Gem 💎 50M',  value: 50_000_000 },
+  { name: 'Gem 💎 100M', value: 100_000_000 },
+  { name: 'Gem 💎 500M', value: 500_000_000 },
+];
+
+// Merge recipes: [inputName, inputQty] -> [outputName, outputQty]
+const GEM_MERGE_RECIPES = [
+  { in: 'Gem 💎 1M',   inQty: 10, out: 'Gem 💎 10M',  outQty: 1 },
+  { in: 'Gem 💎 10M',  inQty: 5,  out: 'Gem 💎 25M',  outQty: 2 },
+  { in: 'Gem 💎 25M',  inQty: 2,  out: 'Gem 💎 50M',  outQty: 1 },
+  { in: 'Gem 💎 50M',  inQty: 2,  out: 'Gem 💎 100M', outQty: 1 },
+  { in: 'Gem 💎 100M', inQty: 5,  out: 'Gem 💎 500M', outQty: 1 },
+];
 const ROBLOX_CLIENT_SECRET = process.env.ROBLOX_CLIENT_SECRET || 'TWÓJ_CLIENT_SECRET';
 const REDIRECT_URI         = process.env.REDIRECT_URI || 'http://localhost:5000/auth/callback';
 const PORT                 = process.env.PORT || 5000;
@@ -498,6 +517,24 @@ app.get('/api/pets/search', async (req, res) => {
     let results = [];
     const seen = new Set();
     
+    // Dodaj gemy zawsze do wyników
+    GEMS.forEach(gem => {
+        const gemName = gem.name;
+        const lower = gemName.toLowerCase();
+        if (q && !lower.includes(q)) return;
+        if (category && category !== 'gem') return;
+        const key = lower;
+        if (seen.has(key)) return;
+        seen.add(key);
+        results.push({
+            name: gemName,
+            category: 'Gem',
+            rap: gem.value,
+            huge: false,
+            thumbnail: '',
+        });
+    });
+    
     for (const pet of pets) {
         const name = pet?.configData?.name || pet?.configName || '';
         if (!name) continue;
@@ -542,10 +579,11 @@ app.get('/api/pets/search', async (req, res) => {
         }
     }
     
-    // Sortuj: najpierw ogony, potem po RAP malejąco
+    // Sortuj: najpierw ogony, potem gemy, potem po RAP malejąco
     results.sort((a, b) => {
-        const aCat = a.category === 'Titanic' ? 0 : a.category === 'Gargantuan' ? 1 : a.category === 'Huge' ? 2 : 3;
-        const bCat = b.category === 'Titanic' ? 0 : b.category === 'Gargantuan' ? 1 : b.category === 'Huge' ? 2 : 3;
+        const order = { Titanic: 0, Gargantuan: 1, Huge: 2, Gem: 3 };
+        const aCat = order[a.category] !== undefined ? order[a.category] : 4;
+        const bCat = order[b.category] !== undefined ? order[b.category] : 4;
         if (aCat !== bCat) return aCat - bCat;
         return (b.rap || 0) - (a.rap || 0);
     });
@@ -566,6 +604,7 @@ app.get('/api/pets/search', async (req, res) => {
 app.get('/api/pets/categories', async (req, res) => {
     const pets = await getPetsCollection();
     const cats = new Set(pets.map(p => p.category).filter(Boolean));
+    cats.add('Gem');
     res.json({ categories: [...cats].sort() });
 });
 
@@ -632,7 +671,10 @@ app.get('/api/inventory/with-rap', requireLogin, async (req, res) => {
             else if (pt === 1) suffix = ' [Golden]';
             else if (pt === 2) suffix = ' [Rainbow]';
             rapMap[baseId + suffix] = it.value || 0;
-        });        getInventory(req.session.robloxId, (items) => {
+        });
+        // Dodaj gemy do rapMap
+        GEMS.forEach(g => { rapMap[g.name] = g.value; });
+        getInventory(req.session.robloxId, (items) => {
             const enriched = items.map(it => {
                 // Proste wyszukiwanie: najpierw dokładna nazwa, potem stripped
                 let rap = rapMap[it.name] || 0;
@@ -730,6 +772,37 @@ app.post('/api/promo/redeem', requireLogin, (req, res) => {
     } catch (e) {
         res.status(500).json({ message: 'Błąd serwera' });
     }
+});
+
+// ── GEMY: MERGE ───────────────────────────────────────────────
+app.post('/api/gems/merge', requireLogin, (req, res) => {
+    const recipeIdx = parseInt(req.body.recipe) || -1;
+    if (recipeIdx < 0 || recipeIdx >= GEM_MERGE_RECIPES.length) {
+        return res.status(400).json({ message: 'Nieprawidłowy przepis merge.' });
+    }
+    const recipe = GEM_MERGE_RECIPES[recipeIdx];
+    
+    getInventory(req.session.robloxId, (items) => {
+        const inputItem = items.find(it => it.name === recipe.in);
+        if (!inputItem || inputItem.qty < recipe.inQty) {
+            return res.status(400).json({ message: `Potrzebujesz ${recipe.inQty}x ${recipe.in}, masz tylko ${inputItem?.qty || 0}.` });
+        }
+        
+        // Odejmij input
+        removeFromInventory(req.session.robloxId, [{ name: recipe.in, qty: recipe.inQty }], (removeResult) => {
+            if (!removeResult.ok) return res.status(400).json({ message: removeResult.message });
+            
+            // Dodaj output
+            addToInventory(req.session.robloxId, [{ name: recipe.out, qty: recipe.outQty }], (newItems) => {
+                addLog('merge', `${req.session.username} połączył ${recipe.inQty}x ${recipe.in} → ${recipe.outQty}x ${recipe.out}`, req);
+                res.json({
+                    ok: true,
+                    message: `✨ Połączono ${recipe.inQty}x ${recipe.in} → ${recipe.outQty}x ${recipe.out}!`,
+                    items: newItems
+                });
+            });
+        });
+    });
 });
 
 // ── PROFIL: STATYSTYKI ────────────────────────────────────────
@@ -856,9 +929,8 @@ app.post('/api/admin/requests/:id/reject', requireAdmin, (req, res) => {
 
 // ── ADMIN: GRACZE / BAN / SALDO ───────────────────────────────
 app.get('/api/admin/players', requireAdmin, (req, res) => {
-    db.find({}).sort({ username: 1 }).exec((err, docs) => {
+    db.find({}).sort({ username: 1 }).exec(async (err, docs) => {
         if (err) return res.json({ players: [] });
-        // dodaj balance/banned jeśli nie istnieją
         const players = (docs || []).map(p => ({
             _id: p._id,
             username: p.username || 'Unknown',
@@ -868,6 +940,15 @@ app.get('/api/admin/players', requireAdmin, (req, res) => {
             role: p.role || '',
             createdAt: p.createdAt || 0
         }));
+        
+        // Dodaj liczbę gemów dla każdego gracza
+        await Promise.all(players.map(p => new Promise(resolve => {
+            getInventory(p._id, (items) => {
+                p.gemsCount = items.filter(it => it.name.startsWith('Gem 💎')).reduce((s, it) => s + it.qty, 0);
+                resolve();
+            });
+        })));
+        
         res.json({ players });
     });
 });
@@ -906,6 +987,23 @@ app.post('/api/admin/players/:id/balance', requireAdmin, (req, res) => {
         if (err) return res.status(500).json({ message: 'Błąd zapisu salda.' });
         addLog('balance', `Zmieniono saldo ${req.params.id} na 🪙 ${amount}`, req);
         res.json({ ok: true, balance: amount });
+    });
+});
+
+// Admin: daj gemy graczowi
+app.post('/api/admin/players/:id/gems', requireAdmin, (req, res) => {
+    const body = req.body.item || req.body;
+    const gemName = safeStr(body.name || body.gemName || '');
+    const qty = parseInt(body.qty) || 0;
+    if (!gemName || qty < 1) return res.status(400).json({ message: 'Podaj nazwę gema i ilość.' });
+    
+    const validGem = GEMS.find(g => g.name === gemName);
+    if (!validGem) return res.status(400).json({ message: 'Nieprawidłowa nazwa gema. Dostępne: ' + GEMS.map(g => g.name).join(', ') });
+    
+    const items = [{ name: gemName, qty }];
+    addToInventory(req.params.id, items, (result) => {
+        addLog('gems', `Dodano ${qty}x ${gemName} do ${req.params.id}`, req);
+        res.json({ ok: true, message: `Dodano ${qty}x ${gemName}` });
     });
 });
 

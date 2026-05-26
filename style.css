@@ -2465,6 +2465,210 @@ body::before {
   .inv-grid { grid-template-columns: 1fr; }
 }
 
+/* ════════════════════════════════════════════
+   GEMS / MERGE MODAL
+   ════════════════════════════════════════════ */
+.inv-item-gem {
+  border-color: rgba(0, 229, 255, .3);
+  background: rgba(0, 229, 255, .04);
+}
+.inv-item-gem .inv-name {
+  color: #00e5ff;
+}
+
+.merge-inv-btn {
+  width: 100%;
+  padding: 10px 14px;
+  margin-top: 10px;
+  background: linear-gradient(135deg, #00b8d4, #00e5ff);
+  border: none;
+  border-radius: 10px;
+  color: #000;
+  font-family: inherit;
+  font-size: .82rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: .2s;
+  box-shadow: 0 3px 12px rgba(0, 229, 255, .3);
+}
+.merge-inv-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 5px 20px rgba(0, 229, 255, .4);
+}
+
+.merge-modal {
+  width: 480px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+.merge-content {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding-right: 4px;
+}
+.merge-content::-webkit-scrollbar { width: 4px; }
+.merge-content::-webkit-scrollbar-track { background: transparent; }
+.merge-content::-webkit-scrollbar-thumb { background: var(--surf3); border-radius: 4px; }
+
+.merge-loading {
+  text-align: center;
+  padding: 40px;
+  color: var(--muted);
+  font-size: .9rem;
+}
+.merge-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--muted);
+}
+.merge-empty .empty-icon {
+  font-size: 2.5rem;
+  margin-bottom: 10px;
+  opacity: .4;
+}
+.merge-empty .empty-sub {
+  font-size: .85rem;
+}
+
+.merge-gems-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.merge-intro {
+  font-size: .82rem;
+  color: var(--muted);
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+
+.merge-recipe {
+  background: var(--surf2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: .2s;
+}
+.merge-recipe.can-merge {
+  border-color: rgba(0, 229, 255, .4);
+  background: rgba(0, 229, 255, .06);
+}
+
+.merge-recipe-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.merge-recipe-input,
+.merge-recipe-output {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.merge-qty {
+  font-family: 'Orbitron', monospace;
+  font-size: .75rem;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+}
+.merge-name {
+  font-weight: 700;
+  font-size: .78rem;
+  color: #00e5ff;
+  white-space: nowrap;
+}
+.merge-arrow {
+  font-size: 1rem;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.merge-have {
+  font-size: .7rem;
+  font-weight: 700;
+  white-space: nowrap;
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+.merge-have.have-enough {
+  color: var(--green);
+  background: rgba(46, 213, 115, .1);
+}
+.merge-have.have-not {
+  color: var(--red);
+  background: rgba(232, 65, 24, .1);
+}
+
+.merge-btn {
+  padding: 8px 16px;
+  background: linear-gradient(135deg, #00b8d4, #00e5ff);
+  border: none;
+  border-radius: 8px;
+  color: #000;
+  font-family: inherit;
+  font-size: .75rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: .2s;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 229, 255, .3);
+}
+.merge-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(0, 229, 255, .4);
+}
+.merge-btn:disabled {
+  background: var(--surf3);
+  color: var(--muted);
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.merge-message {
+  margin-top: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: .82rem;
+  font-weight: 700;
+  text-align: center;
+}
+.merge-message.success {
+  background: rgba(46, 213, 115, .1);
+  color: var(--green);
+  border: 1px solid rgba(46, 213, 115, .2);
+}
+.merge-message.error {
+  background: rgba(232, 65, 24, .1);
+  color: var(--red);
+  border: 1px solid rgba(232, 65, 24, .2);
+}
+
+@media (max-width: 520px) {
+  .merge-modal { width: 94vw; }
+  .merge-recipe {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .merge-recipe-info {
+    flex-wrap: wrap;
+  }
+  .merge-btn {
+    width: 100%;
+  }
+}
+
 /* ── Very small mobile (≤480px) ── */
 @media (max-width: 480px) {
   .sidebar { height: 56px; }

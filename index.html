@@ -550,7 +550,10 @@
           <button class="pet-filter active" data-cat="all">All</button>
           <button class="pet-filter" data-cat="Huge">Huge</button>
           <button class="pet-filter" data-cat="Titanic">Titanic</button>
+          <button class="pet-filter" data-cat="Huge">Huge</button>
+          <button class="pet-filter" data-cat="Titanic">Titanic</button>
           <button class="pet-filter" data-cat="Gargantuan">Gargantuan</button>
+          <button class="pet-filter" data-cat="Gem">💎 Gem</button>
         </div>
       </div>
       <div class="pet-search-results" id="pet-search-results"></div>
@@ -660,6 +663,19 @@
           <div class="promo-empty">Brak wykorzystanych kodów</div>
         </div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: MERGE GEMÓW -->
+<div id="merge-modal" class="modal-overlay">
+  <div class="modal modal-merge">
+    <div class="modal-header">
+      <span class="modal-title">💎 Merge gemów</span>
+      <button class="modal-close" onclick="closeMergeModal()">✕</button>
+    </div>
+    <div class="merge-content" id="merge-content">
+      <div class="merge-loading">Ładowanie inventarza...</div>
     </div>
   </div>
 </div>

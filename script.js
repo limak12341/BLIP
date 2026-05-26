@@ -1144,7 +1144,7 @@ function renderPetResults(pets) {
         const card = document.createElement('div');
         card.className = 'pet-result-item';
         
-        const catColors = { Huge: 'var(--gold)', Titanic: 'var(--purple)', Gargantuan: 'var(--red)' };
+        const catColors = { Huge: 'var(--gold)', Titanic: 'var(--purple)', Gargantuan: 'var(--red)', Gem: '#00e5ff' };
         const catColor = catColors[p.category] || 'var(--muted)';
         
         card.innerHTML = `
@@ -1216,7 +1216,7 @@ function renderDepositItems() {
         const el = document.createElement('div');
         el.className = 'dep-item-row';
         
-        const catColors = { Huge: 'var(--gold)', Titanic: 'var(--purple)', Gargantuan: 'var(--red)' };
+        const catColors = { Huge: 'var(--gold)', Titanic: 'var(--purple)', Gargantuan: 'var(--red)', Gem: '#00e5ff' };
         const catColor = catColors[it.category] || 'var(--muted)';
         
         el.innerHTML = `
@@ -1741,8 +1741,118 @@ socket.on('systemMessage', (msg) => {
     }, 15000);
 });
 
+// ── MERGE GEMÓW ──────────────────────────────────────────────
+window.openMergeModal = async function() {
+    const modal = document.getElementById('merge-modal');
+    const content = document.getElementById('merge-content');
+    modal.style.display = 'flex';
+    content.innerHTML = '<div class="merge-loading">Ładowanie inventarza...</div>';
+    try {
+        const data = await apiJson('/api/inventory', { method: 'GET' });
+        const items = data.items || [];
+        const gems = items.filter(it => it.name.startsWith('Gem 💎'));
+        
+        if (!gems.length) {
+            content.innerHTML = '<div class="merge-empty"><div class="empty-icon">💎</div><p>Nie masz żadnych gemów w inventarzu!</p><p class="empty-sub">Poproś admina o dodanie gemów.</p></div>';
+            return;
+        }
+        
+        // Recipe list
+        const recipes = [
+            { in: 'Gem 💎 1M', inQty: 10, out: 'Gem 💎 10M', outQty: 1, idx: 0 },
+            { in: 'Gem 💎 10M', inQty: 5, out: 'Gem 💎 25M', outQty: 2, idx: 1 },
+            { in: 'Gem 💎 25M', inQty: 2, out: 'Gem 💎 50M', outQty: 1, idx: 2 },
+            { in: 'Gem 💎 50M', inQty: 2, out: 'Gem 💎 100M', outQty: 1, idx: 3 },
+            { in: 'Gem 💎 100M', inQty: 5, out: 'Gem 💎 500M', outQty: 1, idx: 4 },
+        ];
+        
+        let html = '<div class="merge-gems-list">';
+        html += '<div class="merge-intro">Połącz niższe gemy w wyższe:</div>';
+        
+        recipes.forEach(r => {
+            const have = gems.find(g => g.name === r.in);
+            const haveQty = have ? have.qty : 0;
+            const canAfford = haveQty >= r.inQty;
+            html += `<div class="merge-recipe ${canAfford ? 'can-merge' : ''}">
+                <div class="merge-recipe-info">
+                    <div class="merge-recipe-input">
+                        <span class="merge-qty">${r.inQty}x</span>
+                        <span class="merge-name">${r.in}</span>
+                        <span class="merge-have ${canAfford ? 'have-enough' : 'have-not'}">(Masz: ${haveQty})</span>
+                    </div>
+                    <div class="merge-arrow">→</div>
+                    <div class="merge-recipe-output">
+                        <span class="merge-qty">${r.outQty}x</span>
+                        <span class="merge-name">${r.out}</span>
+                    </div>
+                </div>
+                <button class="merge-btn" ${canAfford ? `onclick="doMerge(${r.idx})"` : 'disabled'}>${canAfford ? 'Połącz' : '❌'}</button>
+            </div>`;
+        });
+        
+        html += '</div>';
+        html += '<div id="merge-message" class="merge-message"></div>';
+        content.innerHTML = html;
+    } catch (e) {
+        content.innerHTML = `<div class="merge-empty"><div class="empty-icon">⚠️</div><p>Błąd: ${escapeHtml(e.message)}</p></div>`;
+    }
+};
+
+window.closeMergeModal = function() {
+    document.getElementById('merge-modal').style.display = 'none';
+};
+
+window.doMerge = async function(recipeIdx) {
+    const msgEl = document.getElementById('merge-message');
+    if (!msgEl) return;
+    msgEl.textContent = 'Łączenie...';
+    msgEl.className = 'merge-message';
+    try {
+        const data = await apiJson('/api/gems/merge', {
+            method: 'POST',
+            body: JSON.stringify({ recipe: recipeIdx })
+        });
+        if (data.ok) {
+            msgEl.textContent = '✅ ' + data.message;
+            msgEl.className = 'merge-message success';
+            // Odśwież
+            setTimeout(() => openMergeModal(), 1200);
+        }
+    } catch (e) {
+        msgEl.textContent = '❌ ' + e.message;
+        msgEl.className = 'merge-message error';
+    }
+};
+
+// Add merge button to deposit tab
+function renderInventory() {
+    if (!inventoryListEl) return;
+    inventoryListEl.innerHTML = '';
+    const items = myInventory || [];
+    inventoryEmptyEl.style.display = items.length ? 'none' : 'block';
+    items.forEach(it => {
+        const isGem = it.name.startsWith('Gem 💎');
+        const el = document.createElement('div');
+        el.className = 'inv-item' + (isGem ? ' inv-item-gem' : '');
+        el.innerHTML = `
+          <div class="inv-name">${escapeHtml(it.name)}</div>
+          <div class="inv-qty">x ${fmt(it.qty)}</div>
+        `;
+        inventoryListEl.appendChild(el);
+    });
+    
+    // Add merge button if user has gems
+    if (items.some(it => it.name.startsWith('Gem 💎'))) {
+        const mergeBtn = document.createElement('button');
+        mergeBtn.className = 'merge-inv-btn';
+        mergeBtn.innerHTML = '💎 Merge gemów';
+        mergeBtn.onclick = openMergeModal;
+        inventoryListEl.parentElement.appendChild(mergeBtn);
+    }
+}
+
 // ── CLOSE MODALS ON BACKGROUND CLICK ───────────────────────────
-['create-modal','view-modal','result-modal','deposit-modal','withdraw-modal','join-modal','game-info-modal','rules-modal','profile-modal'].forEach(id => {
+['create-modal','view-modal','result-modal','deposit-modal','withdraw-modal','join-modal','game-info-modal','rules-modal','profile-modal','merge-modal'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener('click', function(e) {
