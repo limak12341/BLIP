@@ -94,13 +94,23 @@ function newId(prefix) {
     return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function guessCategory(name) {
+    if (!name) return 'Unknown';
+    if (name.startsWith('Gem 💎')) return 'Gem';
+    if (name.includes('Titanic')) return 'Titanic';
+    if (name.includes('Gargantuan')) return 'Gargantuan';
+    if (name.includes('Huge')) return 'Huge';
+    return 'Unknown';
+}
+
 function sanitizeItems(items) {
     if (!Array.isArray(items)) return [];
     return items
         .map(it => ({
             name: safeStr(it?.name).slice(0, 80),
             qty: Math.max(1, Math.min(9999, parseInt(it?.qty || 1, 10) || 1)),
-            rap: Math.max(0, parseInt(it?.rap) || 0)
+            rap: Math.max(0, parseInt(it?.rap) || 0),
+            category: it?.category || guessCategory(it?.name)
         }))
         .filter(it => it.name.length > 0);
 }
@@ -277,6 +287,8 @@ function broadcastGames() {
         id: g.id,
         items: g.items,
         totalValue: g.totalValue || 0,
+        wildMode: g.wildMode || false,
+        hugeBet: g.hugeBet || false,
         status: g.status,
         createdAt: g.createdAt,
         creator: { robloxId: g.creator.robloxId, username: g.creator.username, avatarUrl: g.creator.avatarUrl, side: g.creator.side }
@@ -1281,6 +1293,8 @@ io.on('connection', (socket) => {
         if (!sess?.robloxId) return socket.emit('gameError', 'Nie jesteś zalogowany!');
         const side = data.side;
         const items = sanitizeItems(data.items);
+        const wildMode = !!data.wildMode;
+        const hugeBet = !!data.hugeBet;
         if (!['heads','tails'].includes(side)) return socket.emit('gameError', 'Nieprawidłowa strona.');
         if (!items.length) return socket.emit('gameError', 'Dodaj przynajmniej 1 item do zakładu.');
 
@@ -1294,6 +1308,8 @@ io.on('connection', (socket) => {
                 id: gameId,
                 items,
                 totalValue,
+                wildMode,
+                hugeBet,
                 status: 'waiting',
                 createdAt: Date.now(),
                 creator: { robloxId: sess.robloxId, username: sess.username, avatarUrl: sess.avatarUrl, side, socketId: socket.id },
@@ -1329,6 +1345,24 @@ io.on('connection', (socket) => {
         // Pobierz itemy jointera z frontendu (wybrane w modalu)
         const joinItems = sanitizeItems(data.items);
         if (!joinItems.length) return socket.emit('gameError', 'Dodaj przynajmniej 1 item do zakładu.');
+        
+        // Walidacja Huge BET — tylko Titanic, Gargantuan, Gem
+        if (game.hugeBet) {
+            const allowedCats = ['Titanic', 'Gargantuan', 'Gem'];
+            for (const it of joinItems) {
+                const cat = guessCategory(it.name);
+                if (!allowedCats.includes(cat)) {
+                    return socket.emit('gameError', `Ta gra ma opcję Huge BET 🔥 — dozwolone tylko Titanic, Gargantuan i Gemy. "${it.name}" (${cat}) nie jest dozwolone.`);
+                }
+            }
+            // Also validate creator's items
+            for (const it of game.items) {
+                const cat = guessCategory(it.name);
+                if (!allowedCats.includes(cat)) {
+                    return socket.emit('gameError', `Błąd: item twórcy "${it.name}" (${cat}) nie jest dozwolony w Huge BET.`);
+                }
+            }
+        }
 
         // Sprawdź czy wartość itemów jest w zakresie ±7.5% wartości gry
         const joinValue = joinItems.reduce((s, it) => s + (it.rap || 0) * it.qty, 0);
@@ -1356,6 +1390,8 @@ io.on('connection', (socket) => {
                 totalValue: game.totalValue,
                 joinerItems: game.joinerItems,
                 joinValue: game.joinValue,
+                wildMode: game.wildMode || false,
+                hugeBet: game.hugeBet || false,
                 creator: {
                     username: game.creator.username,
                     avatarUrl: game.creator.avatarUrl,
@@ -1372,7 +1408,10 @@ io.on('connection', (socket) => {
             socket.emit('flipStart', flipPayload);
 
             setTimeout(() => {
-                const winningSide = Math.random() < 0.5 ? 'heads' : 'tails';
+                let winningSide = Math.random() < 0.5 ? 'heads' : 'tails';
+                if (game.wildMode) {
+                    winningSide = winningSide === 'heads' ? 'tails' : 'heads';
+                }
                 const creatorWon = game.creator.side === winningSide;
                 const winnerId = creatorWon ? game.creator.robloxId : game.joiner.robloxId;
                 const loserId = creatorWon ? game.joiner.robloxId : game.creator.robloxId;

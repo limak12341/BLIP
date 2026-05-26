@@ -381,6 +381,18 @@
         <span class="choice-icon">💧</span>RESZKA
       </button>
     </div>
+    <div class="create-options-row">
+      <button class="create-option-btn" id="opt-wild" onclick="toggleCreateOption('wild')">
+        <span class="opt-icon">🔄</span>
+        <span class="opt-label">Wild</span>
+        <span class="opt-sub">Odwrócone strony</span>
+      </button>
+      <button class="create-option-btn" id="opt-hugebet" onclick="toggleCreateOption('hugebet')">
+        <span class="opt-icon">🔥</span>
+        <span class="opt-label">Huge BET</span>
+        <span class="opt-sub">Tylko Titanic · Gargantuan · Gemy</span>
+      </button>
+    </div>
     <label class="form-label" style="margin-top:16px">Wybierz itemy do zakładu (z Twojego inventarza)</label>
     <div id="create-items-grid" class="inv-grid" style="max-height:220px;overflow-y:auto"></div>
     <div id="create-items-empty" class="empty-mini" style="display:none">Brak itemów na stronie. Najpierw zdepozytuj coś!</div>
@@ -426,6 +438,7 @@
     <div class="view-bar-wrap">
       <div class="view-bar-fill" id="view-bar-fill"></div>
     </div>
+    <div class="view-mode-badges" id="view-mode-badges" style="display:none"></div>
     <div class="view-item-row">
       <div class="view-item-info" style="width:100%">
         <span style="font-size:.75rem;color:var(--muted);margin-bottom:6px">🏆 Zakład twórcy:</span>

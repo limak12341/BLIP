@@ -2466,6 +2466,97 @@ body::before {
 }
 
 /* ════════════════════════════════════════════
+   CREATE OPTIONS (Wild / Huge BET)
+   ════════════════════════════════════════════ */
+.create-options-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.create-option-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 12px 10px;
+  border-radius: 12px;
+  background: var(--surf2);
+  border: 2px solid var(--border);
+  cursor: pointer;
+  transition: all .2s;
+  font-family: inherit;
+  color: var(--muted);
+  text-align: center;
+}
+.create-option-btn:hover {
+  border-color: var(--border2);
+  color: var(--text);
+}
+.create-option-btn.active {
+  border-color: var(--purple);
+  background: rgba(124,92,252,.1);
+  color: var(--text);
+}
+.create-option-btn .opt-icon {
+  font-size: 1.3rem;
+  line-height: 1;
+}
+.create-option-btn .opt-label {
+  font-size: .8rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.create-option-btn .opt-sub {
+  font-size: .6rem;
+  color: var(--muted);
+  line-height: 1.2;
+  font-weight: 600;
+}
+.create-option-btn.active .opt-sub {
+  color: rgba(255,255,255,.5);
+}
+
+/* ── Mode badges on game cards ── */
+.gc-mode-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border-radius: 5px;
+  font-size: .6rem;
+  font-weight: 700;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+.gc-mode-badge.wild {
+  background: rgba(255, 193, 7, .15);
+  color: #ffc107;
+  border: 1px solid rgba(255, 193, 7, .3);
+}
+.gc-mode-badge.hugebet {
+  background: rgba(255, 87, 34, .15);
+  color: #ff5722;
+  border: 1px solid rgba(255, 87, 34, .3);
+}
+
+@media (max-width: 480px) {
+  .create-options-row {
+    flex-direction: column;
+    gap: 6px;
+  }
+  .create-option-btn {
+    flex-direction: row;
+    gap: 6px;
+    padding: 10px 12px;
+  }
+  .create-option-btn .opt-sub {
+    display: none;
+  }
+}
+
+/* ════════════════════════════════════════════
    GEMS / MERGE MODAL
    ════════════════════════════════════════════ */
 .inv-item-gem {

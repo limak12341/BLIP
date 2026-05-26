@@ -20,6 +20,10 @@ let myInventoryRAP = [];
 // Wybrane itemy do create game
 let createSelectedItems = [];
 
+// Opcje create game
+let currentWildMode = false;
+let currentHugeBet = false;
+
 // Wybrane itemy do join game (przez view modal)
 let joinSelectedItems = [];
 
@@ -491,8 +495,33 @@ async function loadInventoryRAP() {
     }
 }
 
+window.toggleCreateOption = (opt) => {
+    if (opt === 'wild') {
+        currentWildMode = !currentWildMode;
+        document.getElementById('opt-wild').classList.toggle('active', currentWildMode);
+    } else if (opt === 'hugebet') {
+        currentHugeBet = !currentHugeBet;
+        document.getElementById('opt-hugebet').classList.toggle('active', currentHugeBet);
+        if (currentHugeBet) {
+            // Filtruj itemy — usuń wszystko co nie jest Titanic/Gargantuan/Gem
+            createSelectedItems = createSelectedItems.filter(it => {
+                const name = it.name.toLowerCase();
+                return name.includes('titanic') || name.includes('gargantuan') || name.startsWith('gem 💎');
+            });
+        }
+        renderCreateItemPicker();
+    }
+};
+
 window.openCreateModal = async () => {
     createSelectedItems = [];
+    currentWildMode = false;
+    currentHugeBet = false;
+    // Resetuj wizualnie przyciski
+    const wildBtn = document.getElementById('opt-wild');
+    const hugeBtn = document.getElementById('opt-hugebet');
+    if (wildBtn) wildBtn.classList.remove('active');
+    if (hugeBtn) hugeBtn.classList.remove('active');
     await loadInventoryRAP();
     renderCreateItemPicker();
     document.getElementById('create-modal').style.display = 'flex';
@@ -516,7 +545,15 @@ function renderCreateItemPicker() {
 
     grid.innerHTML = '';
 
-    if (!myInventoryRAP.length) {
+    let filteredInventory = myInventoryRAP;
+    if (currentHugeBet) {
+        filteredInventory = myInventoryRAP.filter(it => {
+            const name = it.name.toLowerCase();
+            return name.includes('titanic') || name.includes('gargantuan') || name.startsWith('gem 💎');
+        });
+    }
+
+    if (!filteredInventory.length) {
         empty.style.display = 'block';
         total.textContent = '🪙 0';
         count.textContent = '';
@@ -530,7 +567,7 @@ function renderCreateItemPicker() {
     const selectedMap = new Map();
     createSelectedItems.forEach(it => selectedMap.set(it.name.toLowerCase(), it));
 
-    myInventoryRAP.forEach(it => {
+    filteredInventory.forEach(it => {
         const key = it.name.toLowerCase();
         const sel = selectedMap.get(key);
         const qty = sel ? sel.qty : 0;
@@ -584,7 +621,12 @@ window.submitCreateGame = () => {
         rap: it.rap || 0
     }));
     if (!items.length) return alert('Wybierz przynajmniej 1 item do zakładu!');
-    socket.emit('createGame', { items, side: currentSide });
+    socket.emit('createGame', {
+        items,
+        side: currentSide,
+        wildMode: currentWildMode,
+        hugeBet: currentHugeBet
+    });
     closeCreateModal();
 };
 
@@ -716,6 +758,11 @@ socket.on('gamesList', (games) => {
         const badgeClass = g.creator.side === 'heads' ? 'heads' : 'tails';
         const badgeLetter = g.creator.side === 'heads' ? 'H' : 'T';
 
+        // Badge dla trybów
+        let modeBadges = '';
+        if (g.wildMode) modeBadges += '<span class="gc-mode-badge wild">🔄 Wild</span>';
+        if (g.hugeBet) modeBadges += '<span class="gc-mode-badge hugebet">🔥 Huge BET</span>';
+
         // Generuj podgląd itemów
         const itemsHtml = (g.items || []).slice(0, 3).map(it =>
             `<span class="gc-item-chip">${escapeHtml(it.name)}${it.qty > 1 ? ' x' + it.qty : ''}</span>`
@@ -750,6 +797,7 @@ socket.on('gamesList', (games) => {
             <span class="gc-gameid"># ${g.id}</span>
             <span class="gc-bet">🪙 ${fmt(g.totalValue)}</span>
             <div class="gc-items-row">${itemsHtml}${moreHtml}</div>
+            ${modeBadges ? `<div class="gc-mode-badges-row">${modeBadges}</div>` : ''}
             <div class="gc-bar-wrap"><div class="gc-bar-fill"></div></div>
           </div>
 
@@ -795,7 +843,20 @@ function renderJoinItemPicker() {
 
     grid.innerHTML = '';
 
-    if (!myInventoryRAP.length) {
+    let filteredInventory = myInventoryRAP;
+    if (joinGameTarget && joinGameTarget.hugeBet) {
+        filteredInventory = myInventoryRAP.filter(it => {
+            const name = it.name.toLowerCase();
+            return name.includes('titanic') || name.includes('gargantuan') || name.startsWith('gem 💎');
+        });
+        // Also filter out already selected items that don't match
+        joinSelectedItems = joinSelectedItems.filter(it => {
+            const name = it.name.toLowerCase();
+            return name.includes('titanic') || name.includes('gargantuan') || name.startsWith('gem 💎');
+        });
+    }
+
+    if (!filteredInventory.length) {
         empty.style.display = 'block';
         total.textContent = '🪙 0';
         return;
@@ -909,6 +970,13 @@ window.openViewModal = function(gameId) {
     document.getElementById('view-creator-items').style.display = 'block';
     document.getElementById('view-pot-info').innerHTML = `<strong>🪙 ${fmt(g.totalValue)}</strong> łączna wartość zakładu`;
     document.getElementById('view-pot-info').style.display = 'block';
+
+    // Badge dla trybów
+    let modeBadgeHtml = '';
+    if (g.wildMode) modeBadgeHtml += '<span class="gc-mode-badge wild">🔄 Wild</span>';
+    if (g.hugeBet) modeBadgeHtml += '<span class="gc-mode-badge hugebet">🔥 Huge BET</span>';
+    document.getElementById('view-mode-badges').innerHTML = modeBadgeHtml;
+    document.getElementById('view-mode-badges').style.display = modeBadgeHtml ? 'flex' : 'none';
 
     // Hide joiner items (none yet)
     document.getElementById('view-joiner-items-row').style.display = 'none';
