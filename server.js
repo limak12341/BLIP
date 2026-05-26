@@ -641,6 +641,65 @@ app.get('/api/inventory/with-rap', requireLogin, async (req, res) => {
     }
 });
 
+// ── LEADERBOARD ─────────────────────────────────────────────────
+app.get('/api/leaderboard', (req, res) => {
+    gamesDb.find({}).sort({ timestamp: -1 }).exec((err, docs) => {
+        if (err) return res.json({ leaderboard: [] });
+
+        const stats = {};
+        docs.forEach(r => {
+            if (!r.creator || !r.joiner) return;
+            [r.creator, r.joiner].forEach(p => {
+                if (!p || !p.robloxId) return;
+                if (!stats[p.robloxId]) {
+                    stats[p.robloxId] = {
+                        robloxId: p.robloxId,
+                        username: p.username || 'Unknown',
+                        avatarUrl: p.avatarUrl || '',
+                        wins: 0,
+                        losses: 0,
+                        profit: 0,
+                        totalBet: 0
+                    };
+                }
+                if (p.won) {
+                    stats[p.robloxId].wins++;
+                    const opponentValue = r.creator.robloxId === p.robloxId ? (r.joinValue || 0) : (r.totalValue || 0);
+                    stats[p.robloxId].profit += opponentValue;
+                } else {
+                    stats[p.robloxId].losses++;
+                    const myValue = r.creator.robloxId === p.robloxId ? (r.totalValue || 0) : (r.joinValue || 0);
+                    stats[p.robloxId].profit -= myValue;
+                }
+                const betValue = r.creator.robloxId === p.robloxId ? (r.totalValue || 0) : (r.joinValue || 0);
+                stats[p.robloxId].totalBet += betValue;
+            });
+        });
+
+        const leaderboard = Object.values(stats)
+            .sort((a, b) => b.profit - a.profit)
+            .slice(0, 50);
+
+        res.json({ leaderboard });
+    });
+});
+
+// ── PROFIL: STATYSTYKI ────────────────────────────────────────
+app.get('/api/profile/stats', requireLogin, (req, res) => {
+    getHistory(req.session.robloxId, (records) => {
+        if (!records.length) {
+            return res.json({ total: 0, wins: 0, losses: 0, profit: 0 });
+        }
+        let wins = 0, losses = 0, profit = 0;
+        records.forEach(r => {
+            const me = r.creator.robloxId === req.session.robloxId ? r.creator : r.joiner;
+            if (me.won) { wins++; profit += (r.totalValue || 0); }
+            else { losses++; profit -= (r.totalValue || 0); }
+        });
+        res.json({ total: records.length, wins, losses, profit });
+    });
+});
+
 // ── ADMIN ────────────────────────────────────────────────────
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'admin.html')));
 
@@ -673,7 +732,7 @@ app.post('/api/admin/requests/:id/approve', requireAdmin, (req, res) => {
     const adminNote = safeStr(req.body.adminNote).slice(0, 300);
     requestsDb.findOne({ _id: id }, (err, doc) => {
         if (!doc) return res.status(404).json({ message: 'Nie znaleziono zgłoszenia.' });
-        if (doc.status !== 'pending') return res.status(400).json({ message: 'To zgłoszenie nie jest już pending.' });
+        if (!['pending', 'valued'].includes(doc.status)) return res.status(400).json({ message: 'To zgłoszenie nie może być już zatwierdzone.' });
 
         const items = sanitizeItems(doc.items);
         if (!items.length) return res.status(400).json({ message: 'Brak itemów w zgłoszeniu.' });
@@ -713,7 +772,7 @@ app.post('/api/admin/requests/:id/reject', requireAdmin, (req, res) => {
     const adminNote = safeStr(req.body.adminNote).slice(0, 300);
     requestsDb.findOne({ _id: id }, (err, doc) => {
         if (!doc) return res.status(404).json({ message: 'Nie znaleziono zgłoszenia.' });
-        if (doc.status !== 'pending') return res.status(400).json({ message: 'To zgłoszenie nie jest już pending.' });
+        if (!['pending', 'valued'].includes(doc.status)) return res.status(400).json({ message: 'To zgłoszenie nie może być już odrzucone.' });
 
         requestsDb.update(
             { _id: id },
@@ -876,6 +935,8 @@ io.on('connection', (socket) => {
                 gameId: game.id,
                 items: game.items,
                 totalValue: game.totalValue,
+                joinerItems: game.joinerItems,
+                joinValue: game.joinValue,
                 creator: {
                     username: game.creator.username,
                     avatarUrl: game.creator.avatarUrl,

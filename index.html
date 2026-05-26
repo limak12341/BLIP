@@ -13,21 +13,17 @@
 <!-- ── LOGIN ─────────────────────────────────────── -->
 <div id="login-overlay" class="login-overlay">
   <div class="login-box">
-    <!-- Floating orbs background -->
     <div class="login-orbs">
       <div class="orb o1"></div>
       <div class="orb o2"></div>
       <div class="orb o3"></div>
     </div>
-
     <div class="login-content">
       <div class="login-logo-wrap">
         <div class="login-coin">🪙</div>
         <div class="login-logo">B<span>FLIP</span></div>
       </div>
       <p class="login-sub">Zaloguj się przez weryfikację Bio na Robloxie</p>
-
-      <!-- Step indicators -->
       <div class="login-steps">
         <div class="login-step active" id="step-indicator-1">
           <span class="step-circle">1</span>
@@ -44,18 +40,15 @@
           <span class="step-label">Zweryfikuj</span>
         </div>
       </div>
-
       <div id="verify-step-1" class="verify-step">
         <div class="login-field">
           <label class="login-field-label">Nick Roblox</label>
           <input type="text" id="rob-nick" placeholder="np. xX_Dragon_Xx" class="login-input" autocomplete="off">
         </div>
         <button onclick="startVerification()" class="login-btn">
-          <span class="btn-icon">🔑</span>
-          Generuj kod
+          <span class="btn-icon">🔑</span> Generuj kod
         </button>
       </div>
-
       <div id="verify-step-2" style="display:none">
         <div class="login-field">
           <p class="login-note">Edytuj swoje Bio na Robloxie i wklej tam ten kod:</p>
@@ -66,24 +59,247 @@
           <p class="login-note" style="margin-top:8px">✅ Zapisz profil po zmianie Bio</p>
         </div>
         <button onclick="checkVerification()" class="login-btn login-btn-success">
-          <span class="btn-icon">✓</span>
-          Sprawdź i zaloguj
+          <span class="btn-icon">✓</span> Sprawdź i zaloguj
         </button>
       </div>
-
       <p id="login-error" class="login-error"></p>
     </div>
   </div>
 </div>
 
-<!-- ── MODAL: STWÓRZ GRĘ (itemy z inventarza) ────── -->
+<!-- ── APP LAYOUT ────────────────────────────────── -->
+<div class="app-layout">
+
+  <!-- ── SIDEBAR ─────────────────────────────────── -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-inner">
+      <div class="sidebar-logo">B<span>FLIP</span></div>
+
+      <nav class="sidebar-nav">
+        <button class="sidebar-tab active" data-tab="leaderboard" onclick="showTab('leaderboard')">
+          <span class="st-icon">🏆</span>
+          <span class="st-label">Leaderboard</span>
+        </button>
+        <button class="sidebar-tab" data-tab="coinflip" onclick="showTab('coinflip')">
+          <span class="st-icon">⚡</span>
+          <span class="st-label">Coinflip</span>
+        </button>
+        <button class="sidebar-tab" data-tab="jackpot" onclick="showTab('jackpot')">
+          <span class="st-icon">🎰</span>
+          <span class="st-label">Jackpot</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-spacer"></div>
+
+      <div class="sidebar-bottom">
+        <div class="sidebar-user" id="sidebar-user" style="display:none" onclick="toggleProfileStats()">
+          <img id="sidebar-avatar" class="sidebar-avatar" src="" alt="">
+          <span class="sidebar-username" id="sidebar-username">—</span>
+          <span class="sidebar-chevron">▸</span>
+        </div>
+
+        <!-- Profile stats dropdown (inside sidebar) -->
+        <div class="profile-stats-panel" id="profile-stats-panel">
+          <div class="ps-header">
+            <img id="ps-avatar" class="ps-avatar" src="" alt="">
+            <div class="ps-user-info">
+              <span class="ps-username" id="ps-username">—</span>
+              <span class="ps-label">Statystyki profilu</span>
+            </div>
+          </div>
+          <div class="ps-grid">
+            <div class="ps-item">
+              <span class="ps-val gold" id="ps-total">0</span>
+              <span class="ps-desc">Gier łącznie</span>
+            </div>
+            <div class="ps-item">
+              <span class="ps-val green" id="ps-wins">0</span>
+              <span class="ps-desc">Wygrane</span>
+            </div>
+            <div class="ps-item">
+              <span class="ps-val red" id="ps-losses">0</span>
+              <span class="ps-desc">Przegrane</span>
+            </div>
+            <div class="ps-item">
+              <span class="ps-val" id="ps-wr">0%</span>
+              <span class="ps-desc">Win rate</span>
+            </div>
+          </div>
+          <div class="ps-profit-row">
+            <span class="ps-profit-label">Zysk / Strata</span>
+            <span class="ps-profit-val" id="ps-profit">🪙 0</span>
+          </div>
+          <div class="ps-footer">
+            <span class="ps-refresh" onclick="refreshProfileStats()">⟳ Odśwież</span>
+          </div>
+        </div>
+
+        <button class="sidebar-link" onclick="openRules()">
+          <span class="st-icon">📜</span>
+          <span class="st-label">Rules</span>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── MAIN AREA ───────────────────────────────── -->
+  <div class="main-area">
+
+    <!-- Top bar -->
+    <header class="top-bar" id="top-bar">
+      <div class="top-bar-left">
+        <div class="top-subtabs" id="coinflip-subtabs" style="display:none">
+          <button class="top-subtab active" data-subtab="lobby" onclick="showCoinflipSubtab('lobby')">⚡ Lobby</button>
+          <button class="top-subtab" data-subtab="history" onclick="showCoinflipSubtab('history')">📜 Historia</button>
+          <button class="top-subtab" data-subtab="deposit" onclick="showCoinflipSubtab('deposit')">🎒 Depozyt</button>
+        </div>
+      </div>
+      <div class="top-bar-right">
+        <div class="balance-box">
+          <span>🪙</span><span id="balance-amount">—</span>
+        </div>
+        <div class="theme-toggle-wrap">
+          <button class="theme-btn" onclick="toggleThemeMenu()" title="Theme">🎨</button>
+          <div class="theme-menu" id="theme-menu">
+            <button class="theme-opt" data-theme="purple" onclick="setTheme('purple')"><span class="theme-dot dot-purple"></span>Purple</button>
+            <button class="theme-opt" data-theme="white" onclick="setTheme('white')"><span class="theme-dot dot-white"></span>White</button>
+            <button class="theme-opt" data-theme="black" onclick="setTheme('black')"><span class="theme-dot dot-black"></span>Black</button>
+            <button class="theme-opt" data-theme="red" onclick="setTheme('red')"><span class="theme-dot dot-red"></span>Red</button>
+            <button class="theme-opt" data-theme="blue" onclick="setTheme('blue')"><span class="theme-dot dot-blue"></span>Blue</button>
+            <button class="theme-opt" data-theme="green" onclick="setTheme('green')"><span class="theme-dot dot-green"></span>Green</button>
+            <button class="theme-opt" data-theme="yellow" onclick="setTheme('yellow')"><span class="theme-dot dot-yellow"></span>Yellow</button>
+            <button class="theme-opt" onclick="randomTheme()"><span class="theme-dot dot-random">🎲</span>Random</button>
+          </div>
+        </div>
+        <a href="/logout" id="logout-btn" class="logout-btn" style="display:none">Wyloguj</a>
+      </div>
+    </header>
+
+    <!-- ── MAIN CONTAINER ────────────────────────── -->
+    <main class="main-container">
+
+      <!-- TAB: LEADERBOARD -->
+      <div id="tab-leaderboard" class="tab-content">
+        <div class="lb-header">
+          <span class="lb-title">🏆 Leaderboard</span>
+          <span class="lb-sub">Top 50 graczy według zysku</span>
+        </div>
+        <div id="lb-list" class="lb-list">
+          <div class="empty-lobby">
+            <div class="empty-icon">🏆</div>
+            <p>Brak danych</p>
+            <p class="empty-sub">Zagraj pierwszą grę, aby pojawić się na liście!</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB: COINFLIP -->
+      <div id="tab-coinflip" class="tab-content" style="display:none">
+
+        <!-- LOBBY -->
+        <div id="tab-lobby" class="coinflip-subtab-content">
+          <div class="lobby-toolbar">
+            <div class="lobby-info">
+              <span id="lobby-count" class="lobby-count">0 gier</span>
+              <span class="lobby-sub">aktywnych w lobby</span>
+            </div>
+            <button class="btn-create" id="btn-create" onclick="openCreateModal()">✦ Stwórz grę</button>
+          </div>
+          <div id="games-list" class="games-list">
+            <div class="empty-lobby" id="empty-lobby">
+              <div class="empty-icon">🪙</div>
+              <p>Brak aktywnych gier</p>
+              <p class="empty-sub">Stwórz nową grę i poczekaj na przeciwnika</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- HISTORIA -->
+        <div id="tab-history" class="coinflip-subtab-content" style="display:none">
+          <div class="history-header-bar">
+            <span class="history-page-title">📜 Historia bitew</span>
+            <div class="history-summary" id="history-summary"></div>
+          </div>
+          <div id="history-table-wrap">
+            <div class="empty-lobby">
+              <div class="empty-icon">📜</div>
+              <p>Brak historii gier</p>
+              <p class="empty-sub">Zagraj pierwszą grę PVP!</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- DEPOZYT -->
+        <div id="tab-deposit" class="coinflip-subtab-content" style="display:none">
+          <div class="lobby-toolbar">
+            <div class="lobby-info">
+              <span class="lobby-count" style="color:var(--gold)">Inventarz</span>
+              <span class="lobby-sub">na stronie (po approve admina)</span>
+            </div>
+            <div style="display:flex;gap:10px">
+              <button class="btn-create" onclick="openDepositModal()">Deposit</button>
+              <button class="btn-create" style="background:rgba(255,255,255,.06);border:1px solid var(--border2);color:var(--text);box-shadow:none" onclick="openWithdrawModal()">Withdraw</button>
+            </div>
+          </div>
+          <div class="dep-grid">
+            <div class="dep-card">
+              <div class="dep-card-title">🎒 Twoje itemy</div>
+              <div id="inventory-list" class="inv-grid"></div>
+              <div id="inventory-empty" class="empty-mini" style="display:none">Brak itemów na stronie.</div>
+            </div>
+            <div class="dep-card">
+              <div class="dep-card-title">🧾 Zgłoszenia</div>
+              <div id="requests-list" class="req-list"></div>
+              <div id="requests-empty" class="empty-mini" style="display:none">Brak zgłoszeń.</div>
+            </div>
+          </div>
+          <div class="deposit-hint" style="margin-top:14px">
+            Uwaga: PS99 to cudza gra, więc strona nie odczyta automatycznie trade. Depozyt/wypłata działa przez zgłoszenia i ręczne potwierdzenie admina.
+          </div>
+        </div>
+
+      </div>
+
+      <!-- TAB: JACKPOT -->
+      <div id="tab-jackpot" class="tab-content" style="display:none">
+        <div class="jp-container">
+          <div class="jp-icon">🎰</div>
+          <h2 class="jp-title">Jackpot</h2>
+          <p class="jp-sub">Tryb Jackpot jest w przygotowaniu!</p>
+          <div class="jp-bar-wrap">
+            <div class="jp-bar-fill"></div>
+          </div>
+          <div class="jp-features">
+            <div class="jp-feature">
+              <span class="jp-f-icon">🔥</span>
+              <span>Wkrótce: graj o ogromną pulę</span>
+            </div>
+            <div class="jp-feature">
+              <span class="jp-f-icon">🎯</span>
+              <span>Im więcej włożysz, tym większa szansa</span>
+            </div>
+            <div class="jp-feature">
+              <span class="jp-f-icon">🏆</span>
+              <span>Zwycięzca zabiera całość!</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- ── MODALS ─────────────────────────────────────── -->
+
+<!-- MODAL: STWÓRZ GRĘ -->
 <div id="create-modal" class="modal-overlay">
   <div class="modal modal-wide">
     <div class="modal-header">
       <span class="modal-title">⚡ Stwórz grę PVP</span>
       <button class="modal-close" onclick="closeCreateModal()">✕</button>
     </div>
-
     <label class="form-label">Twoja strona monety</label>
     <div class="side-selector">
       <button class="choice-btn heads-btn active" id="modal-heads" onclick="selectModalSide('heads')">
@@ -93,27 +309,22 @@
         <span class="choice-icon">💧</span>RESZKA
       </button>
     </div>
-
     <label class="form-label" style="margin-top:16px">Wybierz itemy do zakładu (z Twojego inventarza)</label>
     <div id="create-items-grid" class="inv-grid" style="max-height:220px;overflow-y:auto"></div>
     <div id="create-items-empty" class="empty-mini" style="display:none">Brak itemów na stronie. Najpierw zdepozytuj coś!</div>
-
     <div class="modal-info" style="margin-top:12px">
       Łączna wartość zakładu: <strong id="create-total">🪙 0</strong>
       <span id="create-item-count" style="margin-left:8px;color:var(--muted);font-size:.8rem"></span>
     </div>
-
     <button class="flip-btn" onclick="submitCreateGame()" style="margin-top:16px">⚡ Stwórz grę</button>
   </div>
 </div>
 
-<!-- ── MODAL: VIEW GRY (itemy) ───────────────────── -->
+<!-- MODAL: VIEW GRY -->
 <div id="view-modal" class="modal-overlay">
   <div class="modal view-modal-inner">
     <button class="modal-close" onclick="closeViewModal()" style="position:absolute;top:16px;right:16px">✕</button>
-
     <div class="view-vs-row">
-      <!-- CREATOR -->
       <div class="view-player">
         <div class="view-avatar-wrap">
           <img id="view-creator-img" class="view-avatar" src="" alt="">
@@ -121,14 +332,10 @@
         </div>
         <span class="view-username" id="view-creator-name">—</span>
       </div>
-
-      <!-- CENTER -->
       <div class="view-center">
         <span class="view-vs">Vs</span>
         <div class="view-gameid" id="view-gameid">#———</div>
       </div>
-
-      <!-- JOINER / WAITING -->
       <div class="view-player">
         <div class="view-avatar-wrap">
           <div class="view-avatar view-avatar-empty" id="view-joiner-avatar">?</div>
@@ -136,8 +343,6 @@
         <span class="view-username" id="view-joiner-name">Waiting...</span>
       </div>
     </div>
-
-    <!-- VALUE ROW -->
     <div class="view-amounts">
       <div class="view-amount-block">
         <span class="view-coins" id="view-creator-coins">🪙 0</span>
@@ -146,39 +351,29 @@
         <span class="view-coins" id="view-joiner-coins">🪙 0</span>
       </div>
     </div>
-
-    <!-- PROGRESS BAR -->
     <div class="view-bar-wrap">
       <div class="view-bar-fill" id="view-bar-fill"></div>
     </div>
-
-    <!-- ITEMS ROW (creator's items) -->
     <div class="view-item-row">
       <div class="view-item-info" style="width:100%">
         <span style="font-size:.75rem;color:var(--muted);margin-bottom:6px">🏆 Zakład twórcy:</span>
         <div id="view-creator-items" class="view-items-list"></div>
       </div>
     </div>
-
-    <!-- ITEMS ROW (joiner's items - when joined) -->
     <div class="view-item-row" id="view-joiner-items-row" style="display:none">
       <div class="view-item-info" style="width:100%">
         <span style="font-size:.75rem;color:var(--muted);margin-bottom:6px">🔥 Zakład przeciwnika:</span>
         <div id="view-joiner-items" class="view-items-list"></div>
       </div>
     </div>
-
-    <!-- TOTAL POT -->
     <div class="modal-info" id="view-pot-info" style="display:none">
       Pula: <strong id="view-pot-value">🪙 0</strong>
     </div>
-
-    <!-- JOIN BUTTON (jeśli nie moja gra) -->
     <button class="btn-join-big" id="view-join-btn" onclick="joinFromView()">Join</button>
   </div>
 </div>
 
-<!-- ── MODAL: WYNIK GRY ───────────────────────────── -->
+<!-- MODAL: WYNIK GRY -->
 <div id="result-modal" class="modal-overlay">
   <div class="modal modal-result">
     <div class="result-vs">
@@ -203,46 +398,78 @@
       </div>
     </div>
     <div id="res-banner" class="res-banner"></div>
+    <div id="res-items-section" class="res-items-section" style="display:none">
+      <div class="res-items-row">
+        <div class="res-items-col">
+          <div class="res-items-title">🎒 Twój zakład</div>
+          <div id="res-my-items" class="res-items-list"></div>
+          <div class="res-items-total" id="res-my-total">🪙 0</div>
+        </div>
+        <div class="res-items-divider"></div>
+        <div class="res-items-col">
+          <div class="res-items-title">🔥 Zakład przeciwnika</div>
+          <div id="res-opp-items" class="res-items-list"></div>
+          <div class="res-items-total" id="res-opp-total">🪙 0</div>
+        </div>
+      </div>
+    </div>
     <button class="flip-btn" onclick="closeResultModal()" id="res-close-btn" style="display:none;margin-top:16px">Zamknij</button>
   </div>
 </div>
 
-<!-- ── MODAL: JOIN GAME (item picker) ─────────────── -->
+<!-- MODAL: INFO O GRZE -->
+<div id="game-info-modal" class="modal-overlay">
+  <div class="modal modal-wide modal-game-info">
+    <div class="modal-header">
+      <span class="modal-title">📋 Szczegóły gry <span id="gi-game-id"></span></span>
+      <button class="modal-close" onclick="closeGameInfo()">✕</button>
+    </div>
+    <div id="gi-content" class="gi-content">
+      <div class="gi-players">
+        <div class="gi-player-col">
+          <div class="gi-loading">Ładowanie...</div>
+        </div>
+        <div class="gi-vs-col">
+          <div class="gi-vs-badge">⚔️</div>
+        </div>
+        <div class="gi-player-col">
+          <div class="gi-loading">Ładowanie...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: JOIN GAME -->
 <div id="join-modal" class="modal-overlay">
   <div class="modal modal-wide">
     <div class="modal-header">
       <span class="modal-title">🔥 Dołącz do gry</span>
       <button class="modal-close" onclick="closeJoinModal()">✕</button>
     </div>
-
     <label class="form-label">Wybierz itemy do zakładu</label>
     <div id="join-min-info"></div>
     <div id="join-items-grid" class="inv-grid" style="max-height:260px;overflow-y:auto"></div>
     <div id="join-items-empty" class="empty-mini" style="display:none">Brak itemów na stronie.</div>
-
     <div class="modal-info" style="margin-top:12px">
       Łączna wartość: <strong id="join-total">🪙 0</strong>
     </div>
-
     <button class="flip-btn" onclick="submitJoinGame()" style="margin-top:16px">🔥 Dołącz do gry</button>
   </div>
 </div>
 
-<!-- ── MODAL: DEPOZYT ─────────────────────────────── -->
+<!-- MODAL: DEPOZYT -->
 <div id="deposit-modal" class="modal-overlay">
   <div class="modal modal-wide">
     <div class="modal-header">
       <span class="modal-title">📥 Deposit (PS99 trade)</span>
       <button class="modal-close" onclick="closeDepositModal()">✕</button>
     </div>
-
     <div class="deposit-hint" id="deposit-hint">
       1) Zrób trade w PS99 i wyślij itemy do bota <b>kolil1234561</b>.<br>
       2) Wyszukaj pety poniżej, dodaj je do listy i kliknij <b>Zgłoś depozyt</b>.<br>
       3) Bot wyceni + admin potwierdzi i itemy trafią na Twoje konto.
     </div>
-
-    <!-- Wyszukiwarka petów -->
     <div class="pet-search-wrap">
       <div class="pet-search-input-wrap">
         <span class="pet-search-icon">🔍</span>
@@ -256,148 +483,74 @@
       </div>
       <div class="pet-search-results" id="pet-search-results"></div>
     </div>
-
-    <!-- Wybrane itemy do depozytu -->
     <div style="margin-top:14px">
       <label class="form-label" style="margin-bottom:6px">Wybrane itemy do depozytu:</label>
       <div id="deposit-items-list" class="dep-items-list"></div>
       <div id="deposit-items-empty" class="empty-mini" style="display:block">Kliknij + przy pety aby dodać.</div>
     </div>
-
     <div class="deposit-total" id="deposit-total" style="display:none">
       <span>Łączna wartość RAP: </span>
       <span id="deposit-total-value">🪙 0</span>
     </div>
-
     <label class="form-label" style="margin-top:14px">Notatka (opcjonalnie)</label>
     <input class="login-input" id="dep-note" placeholder="np. wysłałem trade 21:37" style="margin-bottom:0">
-
     <button class="flip-btn" onclick="submitDepositRequest()" style="margin-top:16px">📥 Zgłoś depozyt</button>
   </div>
 </div>
 
-<!-- ── MODAL: WYPŁATA ─────────────────────────────── -->
+<!-- MODAL: WYPŁATA -->
 <div id="withdraw-modal" class="modal-overlay">
   <div class="modal modal-wide">
     <div class="modal-header">
       <span class="modal-title">📤 Withdraw (PS99 trade)</span>
       <button class="modal-close" onclick="closeWithdrawModal()">✕</button>
     </div>
-
     <div class="deposit-hint" style="margin-top:0">
       Wybierz itemy z inventarza na stronie i zgłoś wypłatę. Admin potwierdzi i wyśle trade do Ciebie.
     </div>
-
     <div id="withdraw-items" class="inv-grid"></div>
-
     <label class="form-label" style="margin-top:14px">Notatka (opcjonalnie)</label>
     <input class="login-input" id="wd-note" placeholder="np. mój nick PS99 / godzina" style="margin-bottom:0">
-
     <button class="flip-btn" onclick="submitWithdrawRequest()" style="margin-top:16px">📤 Zgłoś wypłatę</button>
   </div>
 </div>
 
-<!-- ── NAVBAR ─────────────────────────────────────── -->
-<nav class="navbar">
-  <div class="logo">B<span>FLIP</span></div>
-  <div class="nav-tabs">
-    <button class="nav-tab active" data-tab="lobby" onclick="showTab('lobby')">⚡ Lobby</button>
-    <button class="nav-tab" data-tab="history" onclick="showTab('history')">📜 Historia</button>
-    <button class="nav-tab" data-tab="deposit" onclick="showTab('deposit')">🎒 Depozyt</button>
-  </div>
-  <div class="nav-right">
-    <div class="nav-user" id="nav-user" style="display:none">
-      <img id="nav-avatar-img" class="user-avatar-img" src="" alt="avatar">
-      <span class="user-name" id="nav-username">—</span>
+<!-- MODAL: RULES -->
+<div id="rules-modal" class="modal-overlay">
+  <div class="modal modal-rules">
+    <div class="modal-header">
+      <span class="modal-title">📜 Zasady gry</span>
+      <button class="modal-close" onclick="closeRules()">✕</button>
     </div>
-    <div class="theme-toggle-wrap">
-      <button class="theme-btn" onclick="toggleThemeMenu()" title="Theme">🎨</button>
-      <div class="theme-menu" id="theme-menu">
-        <button class="theme-opt" data-theme="purple" onclick="setTheme('purple')"><span class="theme-dot dot-purple"></span>Purple</button>
-        <button class="theme-opt" data-theme="white" onclick="setTheme('white')"><span class="theme-dot dot-white"></span>White</button>
-        <button class="theme-opt" data-theme="black" onclick="setTheme('black')"><span class="theme-dot dot-black"></span>Black</button>
-        <button class="theme-opt" data-theme="red" onclick="setTheme('red')"><span class="theme-dot dot-red"></span>Red</button>
-        <button class="theme-opt" data-theme="blue" onclick="setTheme('blue')"><span class="theme-dot dot-blue"></span>Blue</button>
-        <button class="theme-opt" data-theme="green" onclick="setTheme('green')"><span class="theme-dot dot-green"></span>Green</button>
-        <button class="theme-opt" data-theme="yellow" onclick="setTheme('yellow')"><span class="theme-dot dot-yellow"></span>Yellow</button>
-        <button class="theme-opt" onclick="randomTheme()"><span class="theme-dot dot-random">🎲</span>Random</button>
+    <div class="rules-content">
+      <div class="rules-section">
+        <div class="rules-section-icon">🔑</div>
+        <h3>Logowanie</h3>
+        <p>Zaloguj się przez weryfikację Bio na Robloxie. Wygeneruj kod, wpisz go w Bio swojego profilu Roblox i kliknij "Sprawdź i zaloguj".</p>
       </div>
-    </div>
-    <div class="balance-box">
-      <span>🪙</span><span id="balance-amount">—</span>
-    </div>
-    <a href="/logout" id="logout-btn" class="logout-btn" style="display:none">Wyloguj</a>
-  </div>
-</nav>
-
-<!-- ── MAIN ───────────────────────────────────────── -->
-<main class="main-container">
-
-  <!-- TAB: LOBBY -->
-  <div id="tab-lobby">
-    <div class="lobby-toolbar">
-      <div class="lobby-info">
-        <span id="lobby-count" class="lobby-count">0 gier</span>
-        <span class="lobby-sub">aktywnych w lobby</span>
+      <div class="rules-section">
+        <div class="rules-section-icon">📥</div>
+        <h3>Depozyt</h3>
+        <p>Wyślij trade z itemami do bota <strong>kolil1234561</strong> na Robloxie. Następnie wyszukaj pety na stronie i zgłoś depozyt. Bot wyceni itemy (RAP), a admin potwierdzi.</p>
       </div>
-      <button class="btn-create" id="btn-create" onclick="openCreateModal()">✦ Stwórz grę</button>
-    </div>
-    <div id="games-list" class="games-list">
-      <div class="empty-lobby" id="empty-lobby">
-        <div class="empty-icon">🪙</div>
-        <p>Brak aktywnych gier</p>
-        <p class="empty-sub">Stwórz nową grę i poczekaj na przeciwnika</p>
+      <div class="rules-section">
+        <div class="rules-section-icon">⚡</div>
+        <h3>Coinflip</h3>
+        <p>Wybierz stronę monety (ORZEŁ lub RESZKA) i postaw itemy. Przeciwnik może dołączyć do gry, jeśli jego zakład mieści się w zakresie ±7.5% wartości twojego zakładu. Losowanie wyłania zwycięzcę, który zabiera całą pulę!</p>
+      </div>
+      <div class="rules-section">
+        <div class="rules-section-icon">📤</div>
+        <h3>Wypłata</h3>
+        <p>Wybierz itemy z inventarza na stronie i zgłoś wypłatę. Admin wyśle trade z itemami na Robloxie i potwierdzi wypłatę.</p>
+      </div>
+      <div class="rules-section">
+        <div class="rules-section-icon">🏆</div>
+        <h3>Ranking</h3>
+        <p>Leaderboard pokazuje top 50 graczy według zysku netto. Im więcej wygrywasz, tym wyżej w rankingu!</p>
       </div>
     </div>
   </div>
-
-  <!-- TAB: HISTORIA -->
-  <div id="tab-history" style="display:none">
-    <div class="history-header-bar">
-      <span class="history-page-title">📜 Historia bitew</span>
-      <div class="history-summary" id="history-summary"></div>
-    </div>
-    <div id="history-table-wrap">
-      <div class="empty-lobby">
-        <div class="empty-icon">📜</div>
-        <p>Brak historii gier</p>
-        <p class="empty-sub">Zagraj pierwszą grę PVP!</p>
-      </div>
-    </div>
-  </div>
-
-  <!-- TAB: DEPOZYT -->
-  <div id="tab-deposit" style="display:none">
-    <div class="lobby-toolbar">
-      <div class="lobby-info">
-        <span class="lobby-count" style="color:var(--gold)">Inventarz</span>
-        <span class="lobby-sub">na stronie (po approve admina)</span>
-      </div>
-      <div style="display:flex;gap:10px">
-        <button class="btn-create" onclick="openDepositModal()">Deposit</button>
-        <button class="btn-create" style="background:rgba(255,255,255,.06);border:1px solid var(--border2);color:var(--text);box-shadow:none" onclick="openWithdrawModal()">Withdraw</button>
-      </div>
-    </div>
-
-    <div class="dep-grid">
-      <div class="dep-card">
-        <div class="dep-card-title">🎒 Twoje itemy</div>
-        <div id="inventory-list" class="inv-grid"></div>
-        <div id="inventory-empty" class="empty-mini" style="display:none">Brak itemów na stronie.</div>
-      </div>
-      <div class="dep-card">
-        <div class="dep-card-title">🧾 Zgłoszenia</div>
-        <div id="requests-list" class="req-list"></div>
-        <div id="requests-empty" class="empty-mini" style="display:none">Brak zgłoszeń.</div>
-      </div>
-    </div>
-
-    <div class="deposit-hint" style="margin-top:14px">
-      Uwaga: PS99 to cudza gra, więc strona nie odczyta automatycznie trade. Depozyt/wypłata działa przez zgłoszenia i ręczne potwierdzenie admina.
-    </div>
-  </div>
-
-</main>
+</div>
 
 <script src="/socket.io/socket.io.js"></script>
 <script src="script.js"></script>
@@ -413,10 +566,8 @@ function copyCode() {
 async function startVerification() {
     const username = document.getElementById('rob-nick').value.trim();
     if (!username) return alert('Wpisz nick!');
-    
     const btn = document.querySelector('#verify-step-1 .login-btn');
     btn.disabled = true; btn.textContent = 'Generowanie...';
-    
     try {
         const res = await fetch('/verify-start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ username }) });
         const data = await res.json();
@@ -437,10 +588,8 @@ async function startVerification() {
 }
 async function checkVerification() {
     const username = document.getElementById('rob-nick').value.trim();
-    
     const btn = document.querySelector('#verify-step-2 .login-btn');
     btn.disabled = true; btn.textContent = 'Sprawdzanie...';
-    
     try {
         const res = await fetch('/verify-check', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ username }) });
         const data = await res.json();
@@ -462,4 +611,3 @@ async function checkVerification() {
 </script>
 </body>
 </html>
-

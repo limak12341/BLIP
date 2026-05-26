@@ -3,6 +3,7 @@ const socket = io();
 
 let currentUsername = '';
 let currentAvatar   = '';
+let currentRobloxId = '';
 let currentSide     = 'heads';
 let lobbyGames      = [];
 let viewingGameId   = null;
@@ -22,16 +23,23 @@ let createSelectedItems = [];
 // Wybrane itemy do join game (przez view modal)
 let joinSelectedItems = [];
 
+// Store last flip data for result modal items
+let lastFlipData = null;
+let lastResultData = null;
+
 // ── DOM ───────────────────────────────────────────────────────
-const loginOverlay   = document.getElementById('login-overlay');
-const navAvatarImg   = document.getElementById('nav-avatar-img');
-const navUsername    = document.getElementById('nav-username');
-const navUser        = document.getElementById('nav-user');
-const logoutBtn      = document.getElementById('logout-btn');
-const gamesList      = document.getElementById('games-list');
-const lobbyCount     = document.getElementById('lobby-count');
-const historyWrap    = document.getElementById('history-table-wrap');
-const historySummary = document.getElementById('history-summary');
+const loginOverlay    = document.getElementById('login-overlay');
+const sidebarAvatar   = document.getElementById('sidebar-avatar');
+const sidebarUsername = document.getElementById('sidebar-username');
+const sidebarUser     = document.getElementById('sidebar-user');
+const logoutBtn       = document.getElementById('logout-btn');
+const gamesList       = document.getElementById('games-list');
+const lobbyCount      = document.getElementById('lobby-count');
+const historyWrap     = document.getElementById('history-table-wrap');
+const historySummary  = document.getElementById('history-summary');
+
+let currentSidebarTab = 'coinflip';
+let currentSubtab     = 'lobby';
 
 const inventoryListEl  = document.getElementById('inventory-list');
 const inventoryEmptyEl = document.getElementById('inventory-empty');
@@ -76,29 +84,149 @@ socket.on('sessionOk', (data) => {
     loginOverlay.style.display = 'none';
     currentUsername = data.username;
     currentAvatar   = data.avatarUrl || '';
-    navUsername.textContent = data.username;
-    navUser.style.display = 'flex';
+    currentRobloxId = data.robloxId || '';
+    sidebarUsername.textContent = data.username;
+    sidebarUser.style.display = 'flex';
     logoutBtn.style.display = 'inline-block';
-    if (data.avatarUrl) navAvatarImg.src = data.avatarUrl;
+    if (data.avatarUrl) {
+        sidebarAvatar.src = data.avatarUrl;
+        document.getElementById('ps-avatar').src = data.avatarUrl;
+    }
+    document.getElementById('ps-username').textContent = data.username;
+    refreshProfileStats();
     socket.emit('getHistory');
+    showTab('coinflip');
 });
 
 socket.on('sessionNone', () => { loginOverlay.style.display = 'flex'; });
 socket.on('gameError', (msg) => alert(msg));
 
+// ── STATYSTYKI PROFILU ───────────────────────────────────────
+window.toggleProfileStats = async function() {
+    const panel = document.getElementById('profile-stats-panel');
+    const isOpen = panel.classList.contains('open');
+    if (!isOpen) {
+        await refreshProfileStats();
+        panel.classList.add('open');
+    } else {
+        panel.classList.remove('open');
+    }
+};
+
+window.refreshProfileStats = async function() {
+    try {
+        const stats = await apiJson('/api/profile/stats');
+        const { total = 0, wins = 0, losses = 0, profit = 0 } = stats;
+        document.getElementById('ps-total').textContent = total;
+        document.getElementById('ps-wins').textContent = wins;
+        document.getElementById('ps-losses').textContent = losses;
+        const wr = total > 0 ? Math.round((wins / total) * 100) : 0;
+        document.getElementById('ps-wr').textContent = wr + '%';
+        const sign = profit >= 0 ? '+' : '';
+        const profitEl = document.getElementById('ps-profit');
+        profitEl.textContent = `${sign}🪙 ${fmt(profit)}`;
+        profitEl.className = 'ps-profit-val ' + (profit >= 0 ? 'green' : 'red');
+        return stats;
+    } catch (e) {
+        return { total: 0, wins: 0, losses: 0, profit: 0 };
+    }
+};
+
+// Close panel when clicking outside
+document.addEventListener('click', function(e) {
+    const panel = document.getElementById('profile-stats-panel');
+    const userWrap = document.querySelector('.sidebar-user');
+    if (panel && panel.classList.contains('open')) {
+        if (!panel.contains(e.target) && !userWrap.contains(e.target)) {
+            panel.classList.remove('open');
+        }
+    }
+});
+
+// ── LEADERBOARD ────────────────────────────────────────────────
+window.fetchLeaderboard = async function() {
+    const lbList = document.getElementById('lb-list');
+    if (!lbList) return;
+    try {
+        const data = await apiJson('/api/leaderboard');
+        const players = data.leaderboard || [];
+        if (!players.length) {
+            lbList.innerHTML = '<div class="empty-lobby"><div class="empty-icon">🏆</div><p>Brak danych</p><p class="empty-sub">Zagraj pierwszą grę, aby pojawić się na liście!</p></div>';
+            return;
+        }
+        let html = '<div class="lb-table"><div class="lb-head"><span>#</span><span>Gracz</span><span>Gier</span><span>Wygrane</span><span>Przegrane</span><span>Zysk</span></div>';
+        players.forEach((p, i) => {
+            const rank = i + 1;
+            const isMe = p.robloxId === currentRobloxId;
+            const avatarHtml = p.avatarUrl ? `<img class="lb-avatar" src="${p.avatarUrl}" alt="">` : `<div class="lb-avatar-empty">?</div>`;
+            const profitClass = p.profit >= 0 ? 'profit-plus' : 'profit-minus';
+            const profitSign = p.profit >= 0 ? '+' : '';
+            const medalEmoji = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '';
+            html += `<div class="lb-row ${isMe ? 'lb-me' : ''}">
+                <span class="lb-rank">${medalEmoji || rank}</span>
+                <div class="lb-player-col">${avatarHtml}<span class="lb-name">${escapeHtml(p.username)}</span></div>
+                <span class="lb-stat">${p.wins + p.losses}</span>
+                <span class="lb-stat green">${p.wins}</span>
+                <span class="lb-stat red">${p.losses}</span>
+                <span class="lb-stat ${profitClass}">${profitSign}🪙 ${fmt(Math.abs(p.profit))}</span>
+            </div>`;
+        });
+        html += '</div>';
+        lbList.innerHTML = html;
+    } catch (e) {
+        lbList.innerHTML = '<div class="empty-lobby"><div class="empty-icon">⚠️</div><p>Błąd ładowania leaderboardu</p></div>';
+    }
+};
+
+// ── RULES MODAL ────────────────────────────────────────────────
+window.openRules = function() {
+    document.getElementById('rules-modal').style.display = 'flex';
+};
+window.closeRules = function() {
+    document.getElementById('rules-modal').style.display = 'none';
+};
+
 // ── TABS ──────────────────────────────────────────────────────
 window.showTab = function(tab) {
-    document.getElementById('tab-lobby').style.display   = tab === 'lobby'   ? 'block' : 'none';
-    document.getElementById('tab-history').style.display = tab === 'history' ? 'block' : 'none';
-    document.getElementById('tab-deposit').style.display = tab === 'deposit' ? 'block' : 'none';
+    currentSidebarTab = tab;
 
-    document.querySelectorAll('.nav-tab').forEach((el) => {
+    // Hide all sidebar tab contents
+    document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+
+    // Show selected tab
+    document.getElementById('tab-' + tab).style.display = 'block';
+
+    // Update sidebar tabs
+    document.querySelectorAll('.sidebar-tab').forEach((el) => {
         const t = el.getAttribute('data-tab');
         el.classList.toggle('active', t === tab);
     });
 
-    if (tab === 'history') socket.emit('getHistory');
-    if (tab === 'deposit') refreshDepositTab();
+    // Show/hide subtabs in top bar
+    const subtabs = document.getElementById('coinflip-subtabs');
+    if (tab === 'coinflip') {
+        subtabs.style.display = 'flex';
+        showCoinflipSubtab(currentSubtab);
+    } else {
+        subtabs.style.display = 'none';
+    }
+
+    // Load data for specific tabs
+    if (tab === 'coinflip' && currentSubtab === 'history') socket.emit('getHistory');
+    if (tab === 'coinflip' && currentSubtab === 'deposit') refreshDepositTab();
+    if (tab === 'leaderboard') fetchLeaderboard();
+};
+
+window.showCoinflipSubtab = function(subtab) {
+    currentSubtab = subtab;
+    document.querySelectorAll('.coinflip-subtab-content').forEach(el => el.style.display = 'none');
+    document.getElementById('tab-' + subtab).style.display = 'block';
+    document.querySelectorAll('.top-subtab').forEach((el) => {
+        const t = el.getAttribute('data-subtab');
+        el.classList.toggle('active', t === subtab);
+    });
+    if (subtab === 'history') socket.emit('getHistory');
+    if (subtab === 'deposit') refreshDepositTab();
 };
 
 async function refreshDepositTab() {
@@ -220,6 +348,102 @@ window.submitCreateGame = () => {
 
 socket.on('gameCreated', () => { socket.emit('getHistory'); });
 
+// ── GAME INFO MODAL ────────────────────────────────────────
+function buildGameInfoPlayerSection(player, items, totalValue) {
+    const avatarHtml = player && player.avatarUrl
+        ? `<img class="gi-avatar" src="${player.avatarUrl}" alt="">`
+        : `<div class="gi-avatar gi-avatar-empty">?</div>`;
+    
+    const nameHtml = player ? escapeHtml(player.username || '—') : '<span class="gi-muted-text">—</span>';
+    const sideHtml = player && player.side
+        ? `<span class="gi-side gi-side-${player.side}">${player.side === 'heads' ? 'ORZEŁ' : 'RESZKA'}</span>`
+        : '';
+
+    let itemsHtml = '';
+    if (items && items.length) {
+        items.forEach(it => {
+            const itemTotal = (it.rap || 0) * (it.qty || 1);
+            itemsHtml += `
+                <div class="gi-item">
+                    <div class="gi-item-top">
+                        <span class="gi-item-name">${escapeHtml(it.name)}</span>
+                        <span class="gi-item-qty">x${it.qty || 1}</span>
+                    </div>
+                    <div class="gi-item-bottom">
+                        ${it.rap ? `<span class="gi-item-rap">🪙 ${fmt(it.rap)} each</span>` : ''}
+                        ${it.rap ? `<span class="gi-item-subtotal">= 🪙 ${fmt(itemTotal)}</span>` : ''}
+                    </div>
+                </div>`;
+        });
+    }
+    
+    return `
+        <div class="gi-player-header">
+            ${avatarHtml}
+            <div class="gi-player-info">
+                <div class="gi-player-name">${nameHtml}</div>
+                ${sideHtml}
+            </div>
+        </div>
+        <div class="gi-items-wrap">
+            ${itemsHtml || '<div class="gi-no-items">Brak itemów</div>'}
+        </div>
+        <div class="gi-total-row">
+            <span class="gi-total-label">Łączna wartość:</span>
+            <span class="gi-total-value">🪙 ${fmt(totalValue || 0)}</span>
+        </div>`;
+}
+
+window.showGameInfo = function(gameId) {
+    const game = lobbyGames.find(x => x.id === gameId);
+    if (!game) return;
+    
+    document.getElementById('gi-game-id').textContent = `# ${game.id}`;
+    const content = document.getElementById('gi-content');
+    
+    // Creator
+    const creatorHtml = buildGameInfoPlayerSection(game.creator, game.items || [], game.totalValue || 0);
+    
+    // Joiner or waiting
+    let joinerHtml;
+    if (game.status === 'waiting') {
+        joinerHtml = `
+            <div class="gi-waiting">
+                <div class="gi-waiting-icon">⏳</div>
+                <div class="gi-waiting-text">Oczekiwanie na przeciwnika</div>
+                <div class="gi-waiting-sub">Nikt jeszcze nie dołączył do tej gry</div>
+            </div>`;
+    } else {
+        joinerHtml = buildGameInfoPlayerSection(game.joiner || null, [], 0);
+    }
+    
+    content.innerHTML = `
+        <div class="gi-players">
+            <div class="gi-player-col gi-col-creator">
+                <div class="gi-col-header">
+                    <span class="gi-col-badge creator-badge">Twórca</span>
+                    ${game.creator.username === currentUsername ? '<span class="gi-col-you">(Ty)</span>' : ''}
+                </div>
+                ${creatorHtml}
+            </div>
+            <div class="gi-vs-col">
+                <div class="gi-vs-circle">⚔️</div>
+            </div>
+            <div class="gi-player-col gi-col-opponent">
+                <div class="gi-col-header">
+                    <span class="gi-col-badge opp-badge">${game.status === 'waiting' ? 'Oczekiwanie' : 'Przeciwnik'}</span>
+                </div>
+                ${joinerHtml}
+            </div>
+        </div>`;
+    
+    document.getElementById('game-info-modal').style.display = 'flex';
+};
+
+window.closeGameInfo = function() {
+    document.getElementById('game-info-modal').style.display = 'none';
+};
+
 // ── LISTA GIER ────────────────────────────────────────────────
 socket.on('gamesList', (games) => {
     lobbyGames = games;
@@ -259,11 +483,13 @@ socket.on('gamesList', (games) => {
         const rightHtml = isMe
             ? `<div class="gc-actions">
                 <div class="gc-waiting-label"><div class="dot-pulse"></div>Czekam...</div>
+                <button class="btn-info" onclick="showGameInfo('${g.id}')">📋 Info</button>
                 <button class="btn-cancel" onclick="cancelGame('${g.id}')">Anuluj</button>
                </div>`
             : `<div class="gc-actions">
                 <button class="btn-join" onclick="openJoinGameModal('${g.id}')">Join</button>
                 <button class="btn-view" onclick="openViewModal('${g.id}')">View</button>
+                <button class="btn-info-sm" onclick="showGameInfo('${g.id}')">📋 Info</button>
                </div>`;
 
         card.innerHTML = `
@@ -425,17 +651,25 @@ window.openViewModal = function(gameId) {
     document.getElementById('view-creator-coins').textContent = `🪙 ${fmt(g.totalValue)}`;
     document.getElementById('view-joiner-coins').textContent  = `🪙 0`;
 
-    // Items of creator
+    // Items of creator - full list with RAP
     const creatorItemsEl = document.getElementById('view-creator-items');
-    creatorItemsEl.innerHTML = (g.items || []).map(it =>
-        `<span class="gc-item-chip">${escapeHtml(it.name)}${it.qty > 1 ? ' x' + it.qty : ''}</span>`
-    ).join('') || '—';
+    creatorItemsEl.innerHTML = (g.items || []).map(it => {
+        const itemTotal = (it.rap || 0) * (it.qty || 1);
+        return `<div class="vi-item-row">
+            <span class="vi-item-name">${escapeHtml(it.name)}</span>
+            <span class="vi-item-qty">x${it.qty || 1}</span>
+            ${it.rap ? `<span class="vi-item-rap">🪙 ${fmt(it.rap)}</span>` : ''}
+            ${it.rap ? `<span class="vi-item-total">= 🪙 ${fmt(itemTotal)}</span>` : ''}
+        </div>`;
+    }).join('') || '<div class="vi-empty">—</div>';
+
+    // Show all creator items in detail
+    document.getElementById('view-creator-items').style.display = 'block';
+    document.getElementById('view-pot-info').innerHTML = `<strong>🪙 ${fmt(g.totalValue)}</strong> łączna wartość zakładu`;
+    document.getElementById('view-pot-info').style.display = 'block';
 
     // Hide joiner items (none yet)
     document.getElementById('view-joiner-items-row').style.display = 'none';
-
-    // Pot info
-    document.getElementById('view-pot-info').style.display = 'none';
 
     // Progress bar
     document.getElementById('view-bar-fill').style.width = '100%';
@@ -462,16 +696,53 @@ window.joinFromView = () => {
 };
 
 // ── WYNIK GRY ────────────────────────────────────────────────
+function buildItemsListHtml(items) {
+    if (!items || !items.length) return '<div class="ri-empty">Brak itemów</div>';
+    return items.map(it => {
+        const itemTotal = (it.rap || 0) * (it.qty || 1);
+        return `
+            <div class="ri-item">
+                <div class="ri-item-name">${escapeHtml(it.name)}</div>
+                <div class="ri-item-meta">
+                    <span class="ri-item-qty">x${it.qty || 1}</span>
+                    ${it.rap ? `<span class="ri-item-rap">🪙 ${fmt(it.rap)}</span>` : ''}
+                    ${it.rap ? `<span class="ri-item-total">= 🪙 ${fmt(itemTotal)}</span>` : ''}
+                </div>
+            </div>`;
+    }).join('');
+}
+
+function showResultItems(data) {
+    const section = document.getElementById('res-items-section');
+    if (!section) return;
+    section.style.display = 'flex';
+    
+    const youAreCreator = data.creator.username === currentUsername;
+    const myItems = youAreCreator ? (data.items || []) : (data.joinerItems || []);
+    const oppItems = youAreCreator ? (data.joinerItems || []) : (data.items || []);
+    const myTotal = youAreCreator ? (data.totalValue || 0) : (data.joinValue || 0);
+    const oppTotal = youAreCreator ? (data.joinValue || 0) : (data.totalValue || 0);
+    
+    document.getElementById('res-my-items').innerHTML = buildItemsListHtml(myItems);
+    document.getElementById('res-opp-items').innerHTML = buildItemsListHtml(oppItems);
+    document.getElementById('res-my-total').innerHTML = '🪙 ' + fmt(myTotal);
+    document.getElementById('res-opp-total').innerHTML = '🪙 ' + fmt(oppTotal);
+}
+
 socket.on('flipStart', (data) => {
     const youAreCreator = data.creator.username === currentUsername;
+    lastFlipData = data;
     openResultModal();
     fillResultPlayers(data.creator, data.joiner, youAreCreator);
+    showResultItems(data);
     spinCoinTo('heads');
 });
 
 socket.on('gameResult', (data) => {
     const youAreCreator = data.creator.username === currentUsername;
+    lastResultData = data;
     fillResultPlayers(data.creator, data.joiner, youAreCreator);
+    showResultItems(data);
     setTimeout(() => {
         setCoinFinal(data.winningSide);
         const prizeVal = data.prize || 0;
@@ -491,6 +762,7 @@ function openResultModal() {
 }
 window.closeResultModal = () => {
     document.getElementById('result-modal').style.display = 'none';
+    document.getElementById('res-items-section').style.display = 'none';
     const coin = document.getElementById('big-coin');
     coin.classList.remove('spinning');
     coin.style.transform = '';
@@ -575,6 +847,7 @@ socket.on('historyData', (records) => {
           <div class="ht-head"><span>#</span><span>Przeciwnik</span><span>Strony</span><span>Zakład</span><span>Wynik</span></div>
           ${rows}
         </div>`;
+    refreshProfileStats();
 });
 
 // ── DEPOZYT / INVENTARZ ───────────────────────────────────────
@@ -1002,7 +1275,7 @@ document.addEventListener('click', (e) => {
 });
 
 // ── CLOSE MODALS ON BACKGROUND CLICK ───────────────────────────
-['create-modal','view-modal','result-modal','deposit-modal','withdraw-modal','join-modal'].forEach(id => {
+['create-modal','view-modal','result-modal','deposit-modal','withdraw-modal','join-modal','game-info-modal','rules-modal'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener('click', function(e) {

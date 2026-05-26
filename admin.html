@@ -161,8 +161,8 @@
       const btnOk = card.querySelector('.btn-ok');
       const btnNo = card.querySelector('.btn-no');
 
-      btnOk.disabled = r.status !== 'pending';
-      btnNo.disabled = r.status !== 'pending';
+      btnOk.disabled = !['pending', 'valued'].includes(r.status);
+      btnNo.disabled = !['pending', 'valued'].includes(r.status);
 
       btnOk.addEventListener('click', async () => {
         try {
