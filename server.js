@@ -78,10 +78,6 @@ function normalizeUsername(raw) {
     return String(raw || '').trim();
 }
 
-function safeStr(v) {
-    return String(v || '').trim();
-}
-
 function fmt(n) {
     const v = Number(n);
     if (v < 1000) return String(v);
@@ -107,7 +103,7 @@ function sanitizeItems(items) {
     if (!Array.isArray(items)) return [];
     return items
         .map(it => ({
-            name: safeStr(it?.name).slice(0, 80),
+            name: normalizeUsername(it?.name).slice(0, 80),
             qty: Math.max(1, Math.min(9999, parseInt(it?.qty || 1, 10) || 1)),
             rap: Math.max(0, parseInt(it?.rap) || 0),
             category: it?.category || guessCategory(it?.name)
@@ -410,7 +406,7 @@ app.get('/api/requests', requireLogin, (req, res) => {
 // Zgłoszenie depozytu (użytkownik deklaruje co wysłał trade'em)
 app.post('/api/deposit/request', requireLogin, (req, res) => {
     const items = sanitizeItems(req.body.items);
-    const note = safeStr(req.body.note).slice(0, 300);
+    const note = normalizeUsername(req.body.note).slice(0, 300);
     if (!items.length) return res.status(400).json({ message: 'Dodaj przynajmniej 1 item.' });
 
     const doc = {
@@ -435,7 +431,7 @@ app.post('/api/deposit/request', requireLogin, (req, res) => {
 // Zgłoszenie wypłaty (strona odejmie itemy dopiero po akceptacji admina)
 app.post('/api/withdraw/request', requireLogin, (req, res) => {
     const items = sanitizeItems(req.body.items);
-    const note = safeStr(req.body.note).slice(0, 300);
+    const note = normalizeUsername(req.body.note).slice(0, 300);
     if (!items.length) return res.status(400).json({ message: 'Dodaj przynajmniej 1 item.' });
 
     // waliduj, czy user ma te itemy na stronie
@@ -519,8 +515,8 @@ function rapLookup(rap, name) {
 
 // Endpoint: wyszukiwarka petów (dla frontendu)
 app.get('/api/pets/search', async (req, res) => {
-    const q = safeStr(req.query.q).toLowerCase();
-    const category = safeStr(req.query.category).toLowerCase();
+    const q = normalizeUsername(req.query.q).toLowerCase();
+    const category = normalizeUsername(req.query.category).toLowerCase();
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 20));
     
@@ -622,7 +618,7 @@ app.get('/api/pets/categories', async (req, res) => {
 
 // Endpoint dla admina/frontu — wycena pojedynczego itemu
 app.get('/api/item-value', async (req, res) => {
-    const name = safeStr(req.query.name);
+    const name = normalizeUsername(req.query.name);
     if (!name) return res.status(400).json({ message: 'Podaj nazwę itemu.' });
     const rap = await getRap();
     const value = rapLookup(rap, name);
@@ -642,9 +638,9 @@ app.get('/api/bot/pending-deposits', requireBot, (req, res) => {
 
 // Bot aktualizuje request (dodaje wycenę RAP lub odrzuca)
 app.post('/api/bot/update-deposit', requireBot, (req, res) => {
-    const id         = safeStr(req.body.requestId);
-    const status     = safeStr(req.body.status);    // 'valued' | 'rejected'
-    const adminNote  = safeStr(req.body.adminNote || '').slice(0, 500);
+    const id         = normalizeUsername(req.body.requestId);
+    const status     = normalizeUsername(req.body.status);    // 'valued' | 'rejected'
+    const adminNote  = normalizeUsername(req.body.adminNote || '').slice(0, 500);
     const totalValue = parseInt(req.body.totalValue) || 0;
 
     if (!id) return res.status(400).json({ message: 'Brak requestId.' });
@@ -858,7 +854,7 @@ app.get('/api/profile/stats', requireLogin, (req, res) => {
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'admin.html')));
 
 app.post('/admin/login', (req, res) => {
-    const token = safeStr(req.body.token);
+    const token = normalizeUsername(req.body.token);
     if (!token) return res.status(400).json({ message: 'Podaj token.' });
     if (token !== ADMIN_TOKEN) return res.status(401).json({ message: 'Zły token.' });
     req.session.isAdmin = true;
@@ -871,8 +867,8 @@ app.post('/admin/logout', (req, res) => {
 });
 
 app.get('/api/admin/requests', requireAdmin, (req, res) => {
-    const status = safeStr(req.query.status);
-    const type = safeStr(req.query.type);
+    const status = normalizeUsername(req.query.status);
+    const type = normalizeUsername(req.query.type);
     const q = {};
     if (status) q.status = status;
     if (type) q.type = type;
@@ -882,8 +878,8 @@ app.get('/api/admin/requests', requireAdmin, (req, res) => {
 });
 
 app.post('/api/admin/requests/:id/approve', requireAdmin, (req, res) => {
-    const id = safeStr(req.params.id);
-    const adminNote = safeStr(req.body.adminNote).slice(0, 300);
+    const id = normalizeUsername(req.params.id);
+    const adminNote = normalizeUsername(req.body.adminNote).slice(0, 300);
     requestsDb.findOne({ _id: id }, (err, doc) => {
         if (!doc) return res.status(404).json({ message: 'Nie znaleziono zgłoszenia.' });
         if (!['pending', 'valued'].includes(doc.status)) return res.status(400).json({ message: 'To zgłoszenie nie może być już zatwierdzone.' });
@@ -923,8 +919,8 @@ app.post('/api/admin/requests/:id/approve', requireAdmin, (req, res) => {
 });
 
 app.post('/api/admin/requests/:id/reject', requireAdmin, (req, res) => {
-    const id = safeStr(req.params.id);
-    const adminNote = safeStr(req.body.adminNote).slice(0, 300);
+    const id = normalizeUsername(req.params.id);
+    const adminNote = normalizeUsername(req.body.adminNote).slice(0, 300);
     requestsDb.findOne({ _id: id }, (err, doc) => {
         if (!doc) return res.status(404).json({ message: 'Nie znaleziono zgłoszenia.' });
         if (!['pending', 'valued'].includes(doc.status)) return res.status(400).json({ message: 'To zgłoszenie nie może być już odrzucone.' });
@@ -941,27 +937,55 @@ app.post('/api/admin/requests/:id/reject', requireAdmin, (req, res) => {
 
 // ── ADMIN: GRACZE / BAN / SALDO ───────────────────────────────
 app.get('/api/admin/players', requireAdmin, (req, res) => {
-    db.find({}).sort({ username: 1 }).exec(async (err, docs) => {
-        if (err) return res.json({ players: [] });
-        const players = (docs || []).map(p => ({
-            _id: p._id,
-            username: p.username || 'Unknown',
-            avatarUrl: p.avatarUrl || '',
-            balance: p.balance || 0,
-            banned: !!p.banned,
-            role: p.role || '',
-            createdAt: p.createdAt || 0
-        }));
-        
-        // Dodaj liczbę gemów dla każdego gracza
-        await Promise.all(players.map(p => new Promise(resolve => {
-            getInventory(p._id, (items) => {
-                p.gemsCount = items.filter(it => it.name.startsWith('Gem 💎')).reduce((s, it) => s + it.qty, 0);
-                resolve();
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
+    const skip = (page - 1) * limit;
+    const search = normalizeUsername(req.query.q);
+
+    // Buduj zapytanie — jeśli jest szukana fraza, przeszukaj username i _id
+    let query = {};
+    if (search) {
+        const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(escaped, 'i');
+        query = {
+            $or: [
+                { username: regex },
+                { _id: regex }
+            ]
+        };
+    }
+
+    db.count(query, (err, total) => {
+        if (err) return res.json({ players: [], total: 0, page: 1, pages: 0, limit });
+
+        db.find(query).sort({ username: 1 }).skip(skip).limit(limit).exec(async (err, docs) => {
+            if (err) return res.json({ players: [], total, page, pages: Math.ceil(total / limit), limit });
+            const players = (docs || []).map(p => ({
+                _id: p._id,
+                username: p.username || 'Unknown',
+                avatarUrl: p.avatarUrl || '',
+                balance: p.balance || 0,
+                banned: !!p.banned,
+                role: p.role || '',
+                createdAt: p.createdAt || 0
+            }));
+
+            // Dodaj liczbę gemów dla każdego gracza
+            await Promise.all(players.map(p => new Promise(resolve => {
+                getInventory(p._id, (items) => {
+                    p.gemsCount = items.filter(it => it.name.startsWith('Gem 💎')).reduce((s, it) => s + it.qty, 0);
+                    resolve();
+                });
+            })));
+
+            res.json({
+                players,
+                total,
+                page,
+                pages: Math.ceil(total / limit),
+                limit
             });
-        })));
-        
-        res.json({ players });
+        });
     });
 });
 
@@ -982,7 +1006,7 @@ app.post('/api/admin/players/:id/unban', requireAdmin, (req, res) => {
 });
 
 app.post('/api/admin/players/:id/role', requireAdmin, (req, res) => {
-    const role = safeStr(req.body.role || '');
+    const role = normalizeUsername(req.body.role || '');
     const validRoles = ['','helper','mod','smod','owner'];
     if (!validRoles.includes(role)) return res.status(400).json({ message: 'Nieprawidłowa rola. Dozwolone: helper, mod, smod, owner' });
     db.update({ _id: req.params.id }, { $set: { role } }, {}, (err) => {
@@ -1005,7 +1029,7 @@ app.post('/api/admin/players/:id/balance', requireAdmin, (req, res) => {
 // Admin: daj gemy graczowi
 app.post('/api/admin/players/:id/gems', requireAdmin, (req, res) => {
     const body = req.body.item || req.body;
-    const gemName = safeStr(body.name || body.gemName || '');
+    const gemName = normalizeUsername(body.name || body.gemName || '');
     const qty = parseInt(body.qty) || 0;
     if (!gemName || qty < 1) return res.status(400).json({ message: 'Podaj nazwę gema i ilość.' });
     
@@ -1021,7 +1045,7 @@ app.post('/api/admin/players/:id/gems', requireAdmin, (req, res) => {
 
 // ── ADMIN: SYSTEM MESSAGE ────────────────────────────────
 app.post('/api/admin/system-message', requireAdmin, (req, res) => {
-    const message = safeStr(req.body.message).slice(0, 500);
+    const message = normalizeUsername(req.body.message).slice(0, 500);
     if (!message) return res.status(400).json({ message: 'Wpisz treść wiadomości.'});
     
     const msg = {
@@ -1044,7 +1068,7 @@ app.post('/api/admin/system-message', requireAdmin, (req, res) => {
 
 // ── ADMIN: WARNINGS ──────────────────────────────────────
 app.post('/api/admin/players/:id/warn', requireAdmin, (req, res) => {
-    const reason = safeStr(req.body.reason || '').slice(0, 300);
+    const reason = normalizeUsername(req.body.reason || '').slice(0, 300);
     if (!reason) return res.status(400).json({ message: 'Podaj powód ostrzeżenia.' });
     
     db.findOne({ _id: req.params.id }, (err, user) => {
@@ -1075,7 +1099,7 @@ app.get('/api/admin/players/:id/warnings', requireAdmin, (req, res) => {
 
 // ── PROFIL PUBLICZNY ──────────────────────────────────────────
 app.get('/api/profile/public/:userId', async (req, res) => {
-    const userId = safeStr(req.params.userId);
+    const userId = normalizeUsername(req.params.userId);
     if (!userId) return res.status(400).json({ message: 'Brak ID użytkownika.' });
 
     db.findOne({ _id: userId }, (err, user) => {
@@ -1125,7 +1149,7 @@ app.get('/api/profile/public/:userId', async (req, res) => {
 
 // ── TIP ───────────────────────────────────────────────────────
 app.post('/api/profile/:userId/tip', requireLogin, (req, res) => {
-    const targetId = safeStr(req.params.userId);
+    const targetId = normalizeUsername(req.params.userId);
     const amount = parseInt(req.body.amount);
 
     if (!targetId) return res.status(400).json({ message: 'Brak ID użytkownika.' });
@@ -1155,13 +1179,25 @@ app.post('/api/profile/:userId/tip', requireLogin, (req, res) => {
 
 // ── ADMIN: LOGS ──────────────────────────────────────────
 app.get('/api/admin/logs', requireAdmin, (req, res) => {
-    const type = safeStr(req.query.type || '');
-    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 100));
+    const type = normalizeUsername(req.query.type || '');
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 50));
+    const skip = (page - 1) * limit;
     const q = {};
     if (type) q.type = type;
     
-    logsDb.find(q).sort({ timestamp: -1 }).limit(limit).exec((err, docs) => {
-        res.json({ logs: err ? [] : (docs || []) });
+    logsDb.count(q, (err, total) => {
+        if (err) return res.json({ logs: [], total: 0, page: 1, pages: 0, limit });
+
+        logsDb.find(q).sort({ timestamp: -1 }).skip(skip).limit(limit).exec((err, docs) => {
+            res.json({
+                logs: err ? [] : (docs || []),
+                total,
+                page,
+                pages: Math.ceil(total / limit),
+                limit
+            });
+        });
     });
 });
 
@@ -1455,7 +1491,7 @@ io.on('connection', (socket) => {
     });
 
     socket.on('sendChatMessage', (data) => {
-        const text = safeStr(data?.message || '').slice(0, 300);
+        const text = normalizeUsername(data?.message || '').slice(0, 300);
         if (!sess?.robloxId || !text) return;
         
         // Pobierz rolę użytkownika z bazy
@@ -1508,33 +1544,55 @@ function getLocalAddresses() {
     return ips;
 }
 
-server.listen(PORT, '0.0.0.0', () => {
-    loadLobbyGames((restored) => {
-        if (restored) console.log(`↻ Przywrócono ${restored} gier z lobby`);
+// ── TEST-ONLY ENDPOINTY ───────────────────────────────────────
+if (process.env.NODE_ENV === 'test') {
+    app.post('/api/test/login', (req, res) => {
+        req.session.robloxId = String(req.body.robloxId || '9999999999');
+        req.session.username = req.body.username || 'TestUser';
+        req.session.avatarUrl = req.body.avatarUrl || '';
+        getOrCreateUser(req.session.robloxId, req.session.username, req.session.avatarUrl, () => {
+            res.json({ ok: true });
+        });
     });
-    console.log(`\n✅ BFLIP działa:`);
-    console.log(`   Ty (ten komputer):  http://localhost:${PORT}`);
-    const ips = getLocalAddresses();
-    if (ips.length) {
-        console.log(`   Inni w tej samej sieci Wi‑Fi:`);
-        ips.forEach(ip => console.log(`   → http://${ip}:${PORT}`));
-    } else {
-        console.log(`   (nie wykryto adresu LAN — sprawdź ipconfig)`);
-    }
-    console.log(`\n🔐 Admin panel:  http://localhost:${PORT}/admin  (token z env: ADMIN_TOKEN)\n`);
 
-    // ── OPCJONALNY BOT ────────────────────────────────────────
-    // Włącz przez ustawienie zmiennej ENABLE_BOT=true i ROBLOX_COOKIE
-    if (process.env.ENABLE_BOT === 'true') {
-        console.log('[SERVER] ENABLE_BOT=true — uruchamiam bota...');
-        try {
-            const { startBot } = require('./bot.js');
-            startBot();
-        } catch (e) {
-            console.warn('[SERVER] Bot nie mógł zostać uruchomiony:', e.message);
-            console.warn('[SERVER] Sprawdź czy biblioteki są zainstalowane (npm install)');
+    app.post('/api/test/login-admin', (req, res) => {
+        req.session.isAdmin = true;
+        res.json({ ok: true });
+    });
+}
+
+// Eksport dla testów
+module.exports = { app, server, normalizeUsername, fmt, guessCategory, newId, sanitizeItems, GEMS, GEM_MERGE_RECIPES };
+
+if (process.env.NODE_ENV !== 'test') {
+    server.listen(PORT, '0.0.0.0', () => {
+        loadLobbyGames((restored) => {
+            if (restored) console.log(`↻ Przywrócono ${restored} gier z lobby`);
+        });
+        console.log(`\n✅ BFLIP działa:`);
+        console.log(`   Ty (ten komputer):  http://localhost:${PORT}`);
+        const ips = getLocalAddresses();
+        if (ips.length) {
+            console.log(`   Inni w tej samej sieci Wi‑Fi:`);
+            ips.forEach(ip => console.log(`   → http://${ip}:${PORT}`));
+        } else {
+            console.log(`   (nie wykryto adresu LAN — sprawdź ipconfig)`);
         }
-    } else {
-        console.log('[SERVER] Bot pominięty (ustaw ENABLE_BOT=true i ROBLOX_COOKIE by włączyć)');
-    }
-});
+        console.log(`\n🔐 Admin panel:  http://localhost:${PORT}/admin  (token z env: ADMIN_TOKEN)\n`);
+
+        // ── OPCJONALNY BOT ────────────────────────────────────────
+        // Włącz przez ustawienie zmiennej ENABLE_BOT=true i ROBLOX_COOKIE
+        if (process.env.ENABLE_BOT === 'true') {
+            console.log('[SERVER] ENABLE_BOT=true — uruchamiam bota...');
+            try {
+                const { startBot } = require('./bot.js');
+                startBot();
+            } catch (e) {
+                console.warn('[SERVER] Bot nie mógł zostać uruchomiony:', e.message);
+                console.warn('[SERVER] Sprawdź czy biblioteki są zainstalowane (npm install)');
+            }
+        } else {
+            console.log('[SERVER] Bot pominięty (ustaw ENABLE_BOT=true i ROBLOX_COOKIE by włączyć)');
+        }
+    });
+}

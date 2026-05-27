@@ -84,8 +84,18 @@
     <!-- TAB: Gracze -->
     <div id="tab-players" style="display:none">
       <div class="admin-title" style="margin-bottom:14px">👥 Zarządzanie graczami</div>
+      <div style="display:flex;gap:10px;margin-bottom:14px;align-items:center">
+        <input id="players-search-input" type="text" placeholder="Szukaj po username lub ID..." style="flex:1;max-width:360px;padding:10px 14px;border-radius:10px;background:var(--surf);border:1px solid var(--border2);color:var(--text);font-family:inherit;font-size:.85rem;outline:none;transition:border-color .2s" onfocus="this.style.borderColor='rgba(124,92,252,.5)'" onblur="this.style.borderColor=''">
+        <button id="players-search-btn" style="padding:10px 16px;border-radius:10px;background:rgba(124,92,252,.12);border:1px solid rgba(124,92,252,.25);color:#a78bfa;font-weight:700;font-size:.82rem;cursor:pointer;font-family:inherit">🔍 Szukaj</button>
+        <button id="players-search-clear" style="padding:10px 14px;border-radius:10px;background:var(--surf2);border:1px solid var(--border2);color:var(--muted);font-weight:700;font-size:.82rem;cursor:pointer;font-family:inherit;display:none">✕ Wyczyść</button>
+      </div>
       <div id="players-list"></div>
       <div class="empty-mini" id="players-empty" style="display:none">Brak graczy.</div>
+      <div id="players-pagination" style="display:none;margin-top:14px;align-items:center;justify-content:center;gap:12px">
+        <button id="players-prev-btn" style="padding:8px 16px;border-radius:8px;background:var(--surf2);border:1px solid var(--border2);color:var(--text);font-weight:700;font-size:.82rem;cursor:pointer;font-family:inherit">← Poprzednia</button>
+        <span id="players-page-info" style="font-size:.85rem;font-weight:700;color:var(--muted)"></span>
+        <button id="players-next-btn" style="padding:8px 16px;border-radius:8px;background:var(--surf2);border:1px solid var(--border2);color:var(--text);font-weight:700;font-size:.82rem;cursor:pointer;font-family:inherit">Następna →</button>
+      </div>
     </div>
 
     <!-- TAB: Logi -->
@@ -110,6 +120,11 @@
       </div>
       <div id="logs-list" style="display:flex;flex-direction:column;gap:8px"></div>
       <div class="empty-mini" id="logs-empty" style="display:none">Brak logów.</div>
+      <div id="logs-pagination" style="display:none;margin-top:14px;align-items:center;justify-content:center;gap:12px">
+        <button id="logs-prev-btn" style="padding:8px 16px;border-radius:8px;background:var(--surf2);border:1px solid var(--border2);color:var(--text);font-weight:700;font-size:.82rem;cursor:pointer;font-family:inherit">← Poprzednia</button>
+        <span id="logs-page-info" style="font-size:.85rem;font-weight:700;color:var(--muted)"></span>
+        <button id="logs-next-btn" style="padding:8px 16px;border-radius:8px;background:var(--surf2);border:1px solid var(--border2);color:var(--text);font-weight:700;font-size:.82rem;cursor:pointer;font-family:inherit">Następna →</button>
+      </div>
     </div>
 
     <!-- TAB: Ostrzeżenia -->
@@ -194,6 +209,11 @@
   let filterStatus = '';
   let filterType = '';
   let currentAdminTab = 'requests';
+  let playersPage = 1;
+  let playersSearch = '';
+  let logsPage = 1;
+  const PLAYERS_LIMIT = 20;
+  const LOGS_LIMIT = 50;
 
 
 
@@ -208,9 +228,9 @@
     const btn = document.getElementById('tab-btn-' + tab);
     if (btn) btn.classList.add('active');
     
-    if (tab === 'players') refreshPlayers();
+    if (tab === 'players') refreshPlayers(1);
     else if (tab === 'requests') refresh();
-    else if (tab === 'logs') refreshLogs();
+    else if (tab === 'logs') refreshLogs(1);
     else if (tab === 'warnings') refreshAllWarnings();
     else if (tab === 'system') refreshSystemHistory();
   }
@@ -222,18 +242,37 @@
   document.getElementById('tab-btn-system').addEventListener('click', () => switchTab('system'));
 
   // ── LOGS ──
-  async function refreshLogs() {
+  async function refreshLogs(page) {
+    if (page !== undefined) logsPage = page;
     const list = document.getElementById('logs-list');
     const empty = document.getElementById('logs-empty');
+    const pagination = document.getElementById('logs-pagination');
+    const prevBtn = document.getElementById('logs-prev-btn');
+    const nextBtn = document.getElementById('logs-next-btn');
+    const pageInfo = document.getElementById('logs-page-info');
     const filter = document.getElementById('log-type-filter').value;
     list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted)">Ładowanie...</div>';
     empty.style.display = 'none';
+    pagination.style.display = 'none';
     try {
-      const qs = filter ? '?type=' + encodeURIComponent(filter) : '';
+      let qs = '?page=' + logsPage + '&limit=' + LOGS_LIMIT;
+      if (filter) qs += '&type=' + encodeURIComponent(filter);
       const data = await apiJson('/api/admin/logs' + qs);
       const logs = data.logs || [];
       list.innerHTML = '';
       empty.style.display = logs.length ? 'none' : 'block';
+
+      // Pagination
+      const total = data.total || 0;
+      const pages = data.pages || 1;
+      if (pages > 1) {
+        pagination.style.display = 'flex';
+        pageInfo.textContent = 'Strona ' + logsPage + ' z ' + pages + ' (łącznie ' + total + ' logów)';
+        prevBtn.disabled = logsPage <= 1;
+        prevBtn.style.opacity = logsPage <= 1 ? '0.4' : '1';
+        nextBtn.disabled = logsPage >= pages;
+        nextBtn.style.opacity = logsPage >= pages ? '0.4' : '1';
+      }
       
       const typeIcons = { ban:'🔴', unban:'🟢', role:'🟣', warn:'⚠️', balance:'🪙', gems:'💰', approve:'✔', reject:'✕', 'system-message':'📢' };
       
@@ -257,8 +296,8 @@
     }
   }
 
-  document.getElementById('log-type-filter').addEventListener('change', refreshLogs);
-  document.getElementById('refresh-logs-btn').addEventListener('click', refreshLogs);
+  document.getElementById('log-type-filter').addEventListener('change', () => refreshLogs(1));
+  document.getElementById('refresh-logs-btn').addEventListener('click', () => refreshLogs(logsPage));
 
   // ── WARNINGS ──
   document.getElementById('submit-warn-btn').addEventListener('click', async () => {
@@ -484,15 +523,42 @@
   });
 
   // ── PLAYERS MANAGEMENT ──
-  async function refreshPlayers() {
+  async function refreshPlayers(page) {
+    if (page !== undefined) playersPage = page;
     const list = document.getElementById('players-list');
     const empty = document.getElementById('players-empty');
+    const pagination = document.getElementById('players-pagination');
+    const prevBtn = document.getElementById('players-prev-btn');
+    const nextBtn = document.getElementById('players-next-btn');
+    const pageInfo = document.getElementById('players-page-info');
+    const clearBtn = document.getElementById('players-search-clear');
     list.innerHTML = '';
+    pagination.style.display = 'none';
     try {
-      const data = await apiJson('/api/admin/players');
+      let url = '/api/admin/players?page=' + playersPage + '&limit=' + PLAYERS_LIMIT;
+      if (playersSearch) {
+        url += '&q=' + encodeURIComponent(playersSearch);
+        clearBtn.style.display = 'inline-block';
+      } else {
+        clearBtn.style.display = 'none';
+      }
+      const data = await apiJson(url);
       const players = data.players || [];
       empty.style.display = players.length ? 'none' : 'block';
-      if (!players.length) return;
+      if (!players.length) {
+        pagination.style.display = 'none';
+        return;
+      }
+
+      // Pagination info and controls
+      const total = data.total || 0;
+      const pages = data.pages || 1;
+      pagination.style.display = 'flex';
+      pageInfo.textContent = 'Strona ' + playersPage + ' z ' + pages + ' (łącznie ' + total + ' graczy)';
+      prevBtn.disabled = playersPage <= 1;
+      prevBtn.style.opacity = playersPage <= 1 ? '0.4' : '1';
+      nextBtn.disabled = playersPage >= pages;
+      nextBtn.style.opacity = playersPage >= pages ? '0.4' : '1';
 
       let html = `<div style="overflow-x:auto;border-radius:14px;border:1px solid var(--border);background:var(--surf)">`;
       html += `<div style="display:grid;grid-template-columns:40px 1fr 80px 90px 80px 110px 200px;gap:8px;padding:12px 16px;background:var(--surf2);font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);border-bottom:1px solid var(--border)">
@@ -614,6 +680,39 @@
       list.innerHTML = `<div class="empty-mini">Błąd: ${escapeHtml(e.message)}</div>`;
     }
   }
+
+  // ── PLAYERS SEARCH ──
+  function doPlayersSearch() {
+    const input = document.getElementById('players-search-input');
+    playersSearch = input.value.trim();
+    refreshPlayers(1);
+  }
+
+  document.getElementById('players-search-btn').addEventListener('click', doPlayersSearch);
+  document.getElementById('players-search-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') doPlayersSearch();
+  });
+  document.getElementById('players-search-clear').addEventListener('click', () => {
+    document.getElementById('players-search-input').value = '';
+    playersSearch = '';
+    refreshPlayers(1);
+  });
+
+  // ── LOGS PAGINATION ──
+  document.getElementById('logs-prev-btn').addEventListener('click', () => {
+    if (logsPage > 1) refreshLogs(logsPage - 1);
+  });
+  document.getElementById('logs-next-btn').addEventListener('click', () => {
+    refreshLogs(logsPage + 1);
+  });
+
+  // ── PLAYERS PAGINATION ──
+  document.getElementById('players-prev-btn').addEventListener('click', () => {
+    if (playersPage > 1) refreshPlayers(playersPage - 1);
+  });
+  document.getElementById('players-next-btn').addEventListener('click', () => {
+    refreshPlayers(playersPage + 1);
+  });
 </script>
 
 </body>

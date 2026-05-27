@@ -5,9 +5,13 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "bot": "node bot.js"
+    "bot": "node bot.js",
+    "test": "jest --forceExit --detectOpenHandles",
+    "test:watch": "jest --watch --forceExit"
   },
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "type": "commonjs",
   "overrides": {
     "form-data": "4.0.5",
@@ -24,5 +28,10 @@
     "express-session": "^1.18.0",
     "noblox.js": "^4.14.0",
     "socket.io": "^4.8.3"
+  },
+  "devDependencies": {
+    "jest": "^30.4.2",
+    "socket.io-client": "^4.8.3",
+    "supertest": "^7.2.2"
   }
 }

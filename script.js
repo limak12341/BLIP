@@ -58,8 +58,14 @@ function fmt(n) {
     return (v / 1_000_000_000).toFixed(v < 10_000_000_000 ? 1 : 0) + 'B';
 }
 function sideLabel(s) { return s === 'heads' ? 'ORZEŁ' : 'RESZKA'; }
-function timeAgo(ts) {
+function timeAgo(ts, short) {
     const s = Math.floor((Date.now() - ts) / 1000);
+    if (short) {
+        if (s < 60) return 'teraz';
+        if (s < 3600) return `${Math.floor(s/60)}min`;
+        if (s < 86400) return `${Math.floor(s/3600)}h`;
+        return `${Math.floor(s/86400)}d`;
+    }
     if (s < 60) return `${s}s temu`;
     if (s < 3600) return `${Math.floor(s/60)}min temu`;
     return `${Math.floor(s/3600)}h temu`;
@@ -343,7 +349,7 @@ document.addEventListener('click', function(e) {
 
 // ── LEADERBOARD ────────────────────────────────────────────────
 let _lastLeaderboard = [];
-window._lastLeaderboard = _lastLeaderboard;
+window._lastLeaderboard = [];
 
 window.fetchLeaderboard = async function() {
     const lbList = document.getElementById('lb-list');
@@ -351,7 +357,7 @@ window.fetchLeaderboard = async function() {
     try {
         const data = await apiJson('/api/leaderboard');
         const players = data.leaderboard || [];
-        _lastLeaderboard = players;
+        window._lastLeaderboard = players;
         if (!players.length) {
             lbList.innerHTML = '<div class="empty-lobby"><div class="empty-icon">🏆</div><p>Brak danych</p><p class="empty-sub">Zagraj pierwszą grę, aby pojawić się na liście!</p></div>';
             return;
@@ -1471,22 +1477,6 @@ async function loadRequests() {
     myRequests = data.requests || [];
 }
 
-function renderInventory() {
-    if (!inventoryListEl) return;
-    inventoryListEl.innerHTML = '';
-    const items = myInventory || [];
-    inventoryEmptyEl.style.display = items.length ? 'none' : 'block';
-    items.forEach(it => {
-        const el = document.createElement('div');
-        el.className = 'inv-item';
-        el.innerHTML = `
-          <div class="inv-name">${escapeHtml(it.name)}</div>
-          <div class="inv-qty">x ${fmt(it.qty)}</div>
-        `;
-        inventoryListEl.appendChild(el);
-    });
-}
-
 function statusBadge(r) {
     const s = r.status;
     if (s === 'pending') return `<span class="badge pending">PENDING</span>`;
@@ -1629,13 +1619,7 @@ function scrollOverlayToBottom() {
     if (el) el.scrollTop = el.scrollHeight;
 }
 
-function timeAgoShort(ts) {
-    const s = Math.floor((Date.now() - ts) / 1000);
-    if (s < 60) return 'teraz';
-    if (s < 3600) return `${Math.floor(s/60)}min`;
-    if (s < 86400) return `${Math.floor(s/3600)}h`;
-    return `${Math.floor(s/86400)}d`;
-}
+
 
 function roleBadgeHtml(role) {
     const labels = { helper:'Helper', mod:'Mod', smod:'SMod', owner:'Owner' };
@@ -1667,7 +1651,7 @@ function renderChatMessages(container) {
                 <div class="chat-msg-top">
                     <span class="chat-msg-username">${escapeHtml(msg.username)}</span>
                     ${roleBadge}
-                    <span class="chat-msg-time">${timeAgoShort(msg.timestamp)}</span>
+                    <span class="chat-msg-time">${timeAgo(msg.timestamp, true)}</span>
                 </div>
                 <div class="chat-msg-text">${escapeHtml(msg.message)}</div>
             </div>
@@ -1760,7 +1744,7 @@ socket.on('newChatMessage', (msg) => {
                 <div class="chat-msg-top">
                     <span class="chat-msg-username">${escapeHtml(msg.username)}</span>
                     ${roleBadge}
-                    <span class="chat-msg-time">${timeAgoShort(msg.timestamp)}</span>
+                    <span class="chat-msg-time">${timeAgo(msg.timestamp, true)}</span>
                 </div>
                 <div class="chat-msg-text">${escapeHtml(msg.message)}</div>
             </div>
@@ -1909,13 +1893,15 @@ function renderInventory() {
         inventoryListEl.appendChild(el);
     });
     
-    // Add merge button if user has gems
+    // Add merge button if user has gems (only once)
     if (items.some(it => it.name.startsWith('Gem 💎'))) {
-        const mergeBtn = document.createElement('button');
-        mergeBtn.className = 'merge-inv-btn';
-        mergeBtn.innerHTML = '💎 Merge gemów';
-        mergeBtn.onclick = openMergeModal;
-        inventoryListEl.parentElement.appendChild(mergeBtn);
+        if (!inventoryListEl.parentElement.querySelector('.merge-inv-btn')) {
+            const mergeBtn = document.createElement('button');
+            mergeBtn.className = 'merge-inv-btn';
+            mergeBtn.innerHTML = '💎 Merge gemów';
+            mergeBtn.onclick = openMergeModal;
+            inventoryListEl.parentElement.appendChild(mergeBtn);
+        }
     }
 }
 
