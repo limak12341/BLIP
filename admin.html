@@ -7,6 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <style>
     .admin-wrap { max-width: 1000px; margin: 32px auto; padding: 0 20px; position: relative; z-index: 1; }
     .admin-grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
@@ -66,6 +67,7 @@
         <button class="chip" id="tab-btn-warnings">Ostrzeżenia</button>
         <button class="chip" id="tab-btn-system">📢 Wiadomości</button>
         <button class="chip" id="tab-btn-promo">🎁 Promo</button>
+        <button class="chip" id="tab-btn-dashboard">📊 Dashboard</button>
       </div>
     </div>
 
@@ -195,6 +197,56 @@
       </div>
     </div>
 
+    <!-- TAB: Dashboard -->
+    <div id="tab-dashboard" style="display:none">
+      <div class="admin-title" style="margin-bottom:14px">📊 Dashboard</div>
+
+      <!-- KPI cards -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px">
+        <div class="admin-card" style="text-align:center;padding:18px 12px">
+          <div style="font-size:1.8rem;font-weight:900;font-family:'Orbitron',monospace;color:#a78bfa" id="dash-total-games">—</div>
+          <div style="font-size:.72rem;color:var(--muted);font-weight:700;margin-top:4px;text-transform:uppercase;letter-spacing:.5px">🎮 Gier łącznie</div>
+        </div>
+        <div class="admin-card" style="text-align:center;padding:18px 12px">
+          <div style="font-size:1.8rem;font-weight:900;font-family:'Orbitron',monospace;color:#2ed573" id="dash-online-players">—</div>
+          <div style="font-size:.72rem;color:var(--muted);font-weight:700;margin-top:4px;text-transform:uppercase;letter-spacing:.5px">🟢 Online teraz</div>
+        </div>
+        <div class="admin-card" style="text-align:center;padding:18px 12px">
+          <div style="font-size:1.8rem;font-weight:900;font-family:'Orbitron',monospace;color:#f0b429" id="dash-total-players">—</div>
+          <div style="font-size:.72rem;color:var(--muted);font-weight:700;margin-top:4px;text-transform:uppercase;letter-spacing:.5px">👥 Zarejestrowanych</div>
+        </div>
+        <div class="admin-card" style="text-align:center;padding:18px 12px">
+          <div style="font-size:1.8rem;font-weight:900;font-family:'Orbitron',monospace;color:#0abde3" id="dash-total-logs">—</div>
+          <div style="font-size:.72rem;color:var(--muted);font-weight:700;margin-top:4px;text-transform:uppercase;letter-spacing:.5px">📋 Logów łącznie</div>
+        </div>
+      </div>
+
+      <!-- Wykresy -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+        <div class="admin-card">
+          <div style="font-weight:700;font-size:.82rem;margin-bottom:10px;color:var(--muted)">🎮 Gry w ostatnich 7 dniach</div>
+          <canvas id="chart-games-by-day" height="200"></canvas>
+        </div>
+        <div class="admin-card">
+          <div style="font-weight:700;font-size:.82rem;margin-bottom:10px;color:var(--muted)">👥 Rejestracje w ostatnich 7 dniach</div>
+          <canvas id="chart-registrations" height="200"></canvas>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+        <div class="admin-card">
+          <div style="font-weight:700;font-size:.82rem;margin-bottom:10px;color:var(--muted)">🕐 Gry w ostatnich 24h (według godziny)</div>
+          <canvas id="chart-games-by-hour" height="200"></canvas>
+        </div>
+        <div class="admin-card">
+          <div style="font-weight:700;font-size:.82rem;margin-bottom:10px;color:var(--muted)">📋 Logi według typu (ostatnie 500)</div>
+          <canvas id="chart-logs-by-type" height="200"></canvas>
+        </div>
+      </div>
+
+      <button class="btn-ok" id="dash-refresh-btn" style="padding:10px 20px;font-size:.82rem">↻ Odśwież dane</button>
+    </div>
+
     <!-- TAB: Wiadomości systemowe -->
     <div id="tab-system" style="display:none">
       <div class="admin-title" style="margin-bottom:14px">📢 Wiadomość systemowa</div>
@@ -275,7 +327,7 @@
   // ── TAB SWITCHING: update for new tabs ──
   function switchTab(tab) {
     currentAdminTab = tab;
-    ['tab-requests','tab-players','tab-logs','tab-warnings','tab-system','tab-promo'].forEach(id => {
+    ['tab-requests','tab-players','tab-logs','tab-warnings','tab-system','tab-promo','tab-dashboard'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = id === 'tab-' + tab ? 'block' : 'none';
     });
@@ -289,6 +341,7 @@
     else if (tab === 'warnings') refreshAllWarnings();
     else if (tab === 'system') refreshSystemHistory();
     else if (tab === 'promo') refreshPromoCodes(1);
+    else if (tab === 'dashboard') refreshDashboard();
   }
 
   document.getElementById('tab-btn-requests').addEventListener('click', () => switchTab('requests'));
@@ -297,6 +350,8 @@
   document.getElementById('tab-btn-warnings').addEventListener('click', () => switchTab('warnings'));
   document.getElementById('tab-btn-system').addEventListener('click', () => switchTab('system'));
   document.getElementById('tab-btn-promo').addEventListener('click', () => switchTab('promo'));
+  document.getElementById('tab-btn-dashboard').addEventListener('click', () => switchTab('dashboard'));
+  document.getElementById('dash-refresh-btn').addEventListener('click', refreshDashboard);
 
   // ── LOGS ──
   async function refreshLogs(page) {
@@ -970,6 +1025,150 @@
   document.getElementById('promo-next-btn').addEventListener('click', () => {
     refreshPromoCodes(promoPage + 1);
   });
+
+  // ── DASHBOARD ──
+  let dashCharts = {};
+
+  async function refreshDashboard() {
+    const kpiIds = ['dash-total-games','dash-online-players','dash-total-players','dash-total-logs'];
+    kpiIds.forEach(id => document.getElementById(id).textContent = '...');
+
+    try {
+      const data = await apiJson('/api/admin/dashboard');
+
+      // KPI
+      document.getElementById('dash-total-games').textContent = data.totalGames || 0;
+      document.getElementById('dash-online-players').textContent = data.onlinePlayers || 0;
+      document.getElementById('dash-total-players').textContent = data.totalPlayers || 0;
+      document.getElementById('dash-total-logs').textContent = data.totalLogs || 0;
+
+      // Zniszcz stare wykresy
+      Object.values(dashCharts).forEach(chart => { if (chart) chart.destroy(); });
+      dashCharts = {};
+
+      if (typeof Chart === 'undefined') return;
+
+      const chartDefaults = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false }
+        },
+        scales: {
+          x: {
+            ticks: { color: '#888', font: { size: 10, family: 'Inter' } },
+            grid: { display: false }
+          },
+          y: {
+            beginAtZero: true,
+            ticks: { color: '#888', font: { size: 10, family: 'Inter' }, stepSize: 1 },
+            grid: { color: 'rgba(255,255,255,.04)' }
+          }
+        }
+      };
+
+      // 1. Gry w ostatnich 7 dniach (słupkowy)
+      const ctx1 = document.getElementById('chart-games-by-day');
+      if (ctx1 && data.gamesByDay) {
+        dashCharts.gamesByDay = new Chart(ctx1, {
+          type: 'bar',
+          data: {
+            labels: (data.gamesByDay || []).map(d => { const parts = d.date.split('-'); return parts[2] + '/' + parts[1]; }),
+            datasets: [{
+              data: (data.gamesByDay || []).map(d => d.count),
+              backgroundColor: 'rgba(124,92,252,.5)',
+              borderColor: '#a78bfa',
+              borderWidth: 1,
+              borderRadius: 4
+            }]
+          },
+          options: { ...chartDefaults, plugins: { ...chartDefaults.plugins, legend: { display: false } } }
+        });
+      }
+
+      // 2. Rejestracje w ostatnich 7 dniach (słupkowy)
+      const ctx2 = document.getElementById('chart-registrations');
+      if (ctx2 && data.registrationsByDay) {
+        dashCharts.registrations = new Chart(ctx2, {
+          type: 'bar',
+          data: {
+            labels: (data.registrationsByDay || []).map(d => { const parts = d.date.split('-'); return parts[2] + '/' + parts[1]; }),
+            datasets: [{
+              data: (data.registrationsByDay || []).map(d => d.count),
+              backgroundColor: 'rgba(46,213,115,.5)',
+              borderColor: '#2ed573',
+              borderWidth: 1,
+              borderRadius: 4
+            }]
+          },
+          options: { ...chartDefaults, plugins: { ...chartDefaults.plugins, legend: { display: false } } }
+        });
+      }
+
+      // 3. Gry w ostatnich 24h (liniowy)
+      const ctx3 = document.getElementById('chart-games-by-hour');
+      if (ctx3 && data.gamesByHour) {
+        dashCharts.gamesByHour = new Chart(ctx3, {
+          type: 'line',
+          data: {
+            labels: (data.gamesByHour || []).map(d => d.hour),
+            datasets: [{
+              data: (data.gamesByHour || []).map(d => d.count),
+              borderColor: '#0abde3',
+              backgroundColor: 'rgba(10,189,227,.08)',
+              borderWidth: 2,
+              fill: true,
+              tension: .3,
+              pointRadius: 3,
+              pointBackgroundColor: '#0abde3'
+            }]
+          },
+          options: { ...chartDefaults, plugins: { ...chartDefaults.plugins, legend: { display: false } } }
+        });
+      }
+
+      // 4. Logi według typu (Doughnut)
+      const ctx4 = document.getElementById('chart-logs-by-type');
+      if (ctx4 && data.logsByType) {
+        const typeColors = {
+          ban: '#e84118', unban: '#2ed573', role: '#a78bfa', warn: '#f0b429',
+          balance: '#f0b429', gems: '#00e5ff', approve: '#2ed573', reject: '#e84118',
+          'system-message': '#ff6b81', promo: '#ff9ff3', tip: '#54a0ff', merge: '#5f27cd'
+        };
+        const labels = (data.logsByType || []).map(d => {
+          const icons = { ban:'🔴 Ban', unban:'🟢 Unban', role:'🟣 Role', warn:'⚠️ Warn', balance:'🪙 Balance', gems:'💰 Gems', approve:'✔ Approve', reject:'✕ Reject', 'system-message':'📢 System', promo:'🎁 Promo', tip:'💸 Tip', merge:'🔀 Merge' };
+          return icons[d.type] || d.type;
+        });
+        const colors = (data.logsByType || []).map(d => typeColors[d.type] || '#666');
+        const totalLogsInSample = (data.logsByType || []).reduce((s, d) => s + d.count, 0);
+        dashCharts.logsByType = new Chart(ctx4, {
+          type: 'doughnut',
+          data: {
+            labels,
+            datasets: [{
+              data: (data.logsByType || []).map(d => d.count),
+              backgroundColor: colors.map(c => c + '88'),
+              borderColor: colors,
+              borderWidth: 2
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                position: 'right',
+                labels: { color: '#ccc', font: { size: 10, family: 'Inter' }, boxWidth: 12, padding: 8 }
+              }
+            }
+          }
+        });
+      }
+    } catch (e) {
+      kpiIds.forEach(id => document.getElementById(id).textContent = '—');
+      console.error('Dashboard error:', e);
+    }
+  }
 </script>
 
 </body>

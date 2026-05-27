@@ -206,7 +206,7 @@ function getOrCreateUser(robloxId, username, avatarUrl, callback) {
         if (doc) {
             db.update({ _id: robloxId }, { $set: { username, avatarUrl } }, {}, () => callback({ ...doc, username, avatarUrl }));
         } else {
-            const newUser = { _id: robloxId, username, avatarUrl };
+            const newUser = { _id: robloxId, username, avatarUrl, createdAt: Date.now() };
             db.insert(newUser, (err2, inserted) => callback(inserted));
         }
     });
@@ -1292,6 +1292,118 @@ app.post('/api/profile/:userId/tip', requireLogin, (req, res) => {
                     res.json({ ok: true, message: `Wysłano 🪙 ${fmt(amount)} do ${target.username || 'użytkownika'}!` });
                 });
             });
+        });
+    });
+});
+
+// ── ADMIN: DASHBOARD ─────────────────────────────────────
+app.get('/api/admin/dashboard', requireAdmin, (req, res) => {
+    const gamesPromise = new Promise(resolve => {
+        gamesDb.count({}, (err, count) => resolve(count || 0));
+    });
+    const playersPromise = new Promise(resolve => {
+        db.count({}, (err, count) => resolve(count || 0));
+    });
+    const logsPromise = new Promise(resolve => {
+        logsDb.count({}, (err, count) => resolve(count || 0));
+    });
+
+    // Gry z ostatnich 7 dni
+    const gamesByDayPromise = new Promise(resolve => {
+        const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+        gamesDb.find({ timestamp: { $gte: sevenDaysAgo } }).sort({ timestamp: 1 }).exec((err, docs) => {
+            if (err || !docs) return resolve([]);
+            const dayMap = {};
+            const days = [];
+            for (let i = 6; i >= 0; i--) {
+                const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+                const key = d.toISOString().slice(0, 10);
+                dayMap[key] = 0;
+                days.push(key);
+            }
+            docs.forEach(doc => {
+                const key = new Date(doc.timestamp).toISOString().slice(0, 10);
+                if (dayMap[key] !== undefined) dayMap[key]++;
+            });
+            resolve(days.map(date => ({ date, count: dayMap[date] })));
+        });
+    });
+
+    // Logi według typu (ostatnie 500)
+    const logsByTypePromise = new Promise(resolve => {
+        logsDb.find({}).sort({ timestamp: -1 }).limit(500).exec((err, docs) => {
+            if (err || !docs) return resolve([]);
+            const typeMap = {};
+            docs.forEach(doc => {
+                const t = doc.type || 'other';
+                typeMap[t] = (typeMap[t] || 0) + 1;
+            });
+            resolve(Object.entries(typeMap).map(([type, count]) => ({ type, count })).sort((a, b) => b.count - a.count));
+        });
+    });
+
+    // Gry z ostatnich 24h według godziny
+    const gamesByHourPromise = new Promise(resolve => {
+        const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+        gamesDb.find({ timestamp: { $gte: oneDayAgo } }).sort({ timestamp: 1 }).exec((err, docs) => {
+            if (err || !docs) return resolve([]);
+            const hourMap = {};
+            for (let i = 23; i >= 0; i--) {
+                const d = new Date(Date.now() - i * 60 * 60 * 1000);
+                const key = d.toISOString().slice(0, 13) + ':00'; // YYYY-MM-DDTHH:00
+                hourMap[key] = 0;
+            }
+            docs.forEach(doc => {
+                const d = new Date(doc.timestamp);
+                const key = d.toISOString().slice(0, 13) + ':00';
+                if (hourMap[key] !== undefined) hourMap[key]++;
+            });
+            const hours = Object.entries(hourMap)
+                .map(([hour, count]) => ({ hour: hour.slice(11, 16), count }))
+                .sort((a, b) => a.hour.localeCompare(b.hour));
+            resolve(hours);
+        });
+    });
+
+    // Rejestracje graczy z ostatnich 7 dni
+    const registrationsByDayPromise = new Promise(resolve => {
+        const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+        db.find({ createdAt: { $gte: sevenDaysAgo } }).sort({ createdAt: 1 }).exec((err, docs) => {
+            if (err || !docs) return resolve([]);
+            const dayMap = {};
+            const days = [];
+            for (let i = 6; i >= 0; i--) {
+                const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+                const key = d.toISOString().slice(0, 10);
+                dayMap[key] = 0;
+                days.push(key);
+            }
+            docs.forEach(doc => {
+                const key = new Date(doc.createdAt).toISOString().slice(0, 10);
+                if (dayMap[key] !== undefined) dayMap[key]++;
+            });
+            resolve(days.map(date => ({ date, count: dayMap[date] })));
+        });
+    });
+
+    Promise.all([
+        gamesPromise,
+        playersPromise,
+        logsPromise,
+        gamesByDayPromise,
+        logsByTypePromise,
+        gamesByHourPromise,
+        registrationsByDayPromise
+    ]).then(([totalGames, totalPlayers, totalLogs, gamesByDay, logsByType, gamesByHour, registrationsByDay]) => {
+        res.json({
+            totalGames,
+            totalPlayers,
+            totalLogs,
+            onlinePlayers: connectedUsers.size,
+            gamesByDay,
+            logsByType,
+            gamesByHour,
+            registrationsByDay
         });
     });
 });
