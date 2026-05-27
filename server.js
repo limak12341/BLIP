@@ -768,18 +768,137 @@ app.post('/api/promo/redeem', requireLogin, (req, res) => {
                 const usedCodes = user.usedCodes || [];
                 if (usedCodes.includes(doc.code)) return res.status(400).json({ message: 'Już wykorzystałeś ten kod!' });
 
-                const reward = doc.reward || 0;
-                const newBalance = (user.balance || 0) + reward;
-                db.update({ _id: req.session.robloxId }, { $set: { balance: newBalance }, $push: { usedCodes: doc.code } }, {}, (err3) => {
+                // Obsługa rewards array (nowy format) + backward compat (stary `reward` pole)
+                const rewards = doc.rewards || (doc.reward ? [{ type: 'coins', amount: doc.reward }] : []);
+                let balanceReward = 0;
+                const gemRewards = [];
+
+                for (const r of rewards) {
+                    if (r.type === 'coins') balanceReward += r.amount || 0;
+                    else if (r.type === 'gems') gemRewards.push({ name: r.name, qty: r.qty || 1 });
+                }
+
+                // Aplikuj nagrodę 🪙
+                if (balanceReward > 0) {
+                    const newBalance = (user.balance || 0) + balanceReward;
+                    db.update({ _id: req.session.robloxId }, { $set: { balance: newBalance } }, {}, () => {});
+                }
+
+                // Aplikuj nagrodę 💎
+                if (gemRewards.length > 0) {
+                    addToInventory(req.session.robloxId, gemRewards, () => {});
+                }
+
+                // Oznacz kod jako użyty
+                db.update({ _id: req.session.robloxId }, { $push: { usedCodes: doc.code } }, {}, (err3) => {
                     if (err3) return res.status(500).json({ message: 'Błąd zapisu' });
                     codesDb.update({ _id: doc._id }, { $inc: { usedCount: 1 } }, {}, () => {});
-                    res.json({ success: true, reward, message: `🎉 Otrzymałeś 🪙 ${fmt(reward)}!` });
+
+                    let message = '🎉 Otrzymałeś:';
+                    if (balanceReward > 0) message += ` 🪙 ${fmt(balanceReward)}`;
+                    if (gemRewards.length > 0) {
+                        for (const g of gemRewards) {
+                            message += ` ${g.qty}x ${g.name}`;
+                        }
+                    }
+                    res.json({ success: true, rewards, message });
                 });
             });
         });
     } catch (e) {
         res.status(500).json({ message: 'Błąd serwera' });
     }
+});
+
+// ── ADMIN: PROMO CODE MANAGEMENT ───────────────────────────────
+app.get('/api/admin/promo-codes', requireAdmin, (req, res) => {
+    const codesDb = Datastore.create({ filename: path.join(__dirname, 'promocodes.db'), autoload: true });
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
+    const skip = (page - 1) * limit;
+
+    codesDb.count({}, (err, total) => {
+        if (err) return res.json({ codes: [], total: 0, page: 1, pages: 0, limit });
+        codesDb.find({}).sort({ createdAt: -1 }).skip(skip).limit(limit).exec((err, docs) => {
+            res.json({
+                codes: docs || [],
+                total,
+                page,
+                pages: Math.ceil(total / limit),
+                limit
+            });
+        });
+    });
+});
+
+app.post('/api/admin/promo-codes', requireAdmin, (req, res) => {
+    const { code, rewards, maxUses } = req.body;
+    if (!code || !code.trim()) return res.status(400).json({ message: 'Podaj kod promocyjny!' });
+    if (!rewards || !Array.isArray(rewards) || !rewards.length) return res.status(400).json({ message: 'Dodaj przynajmniej 1 nagrodę.' });
+
+    // Walidacja nagród
+    for (const r of rewards) {
+        if (r.type === 'coins' && (!r.amount || r.amount < 1)) return res.status(400).json({ message: 'Kwota nagrody (🪙) musi być większa niż 0.' });
+        if (r.type === 'gems') {
+            if (!r.name) return res.status(400).json({ message: 'Podaj nazwę gema.' });
+            const valid = GEMS.find(g => g.name === r.name);
+            if (!valid) return res.status(400).json({ message: `Nieprawidłowy gem: ${r.name}. Dostępne: ${GEMS.map(g => g.name).join(', ')}` });
+            if (!r.qty || r.qty < 1) return res.status(400).json({ message: 'Ilość gemów musi być większa niż 0.' });
+        }
+    }
+
+    const codeStr = code.trim().toUpperCase();
+    const codesDb = Datastore.create({ filename: path.join(__dirname, 'promocodes.db'), autoload: true });
+
+    codesDb.findOne({ code: codeStr }, (err, existing) => {
+        if (err) return res.status(500).json({ message: 'Błąd bazy.' });
+        if (existing) return res.status(400).json({ message: 'Kod o tej nazwie już istnieje!' });
+
+        const doc = {
+            code: codeStr,
+            active: true,
+            rewards,
+            maxUses: Math.max(0, parseInt(maxUses) || 0),
+            usedCount: 0,
+            createdAt: Date.now(),
+            createdBy: req.session.username || 'Admin'
+        };
+
+        codesDb.insert(doc, (err) => {
+            if (err) return res.status(500).json({ message: 'Błąd zapisu kodu.' });
+            addLog('promo', `Utworzono kod promocyjny ${codeStr}`, req);
+            res.json({ ok: true, code: doc });
+        });
+    });
+});
+
+app.post('/api/admin/promo-codes/:id/toggle', requireAdmin, (req, res) => {
+    const id = normalizeUsername(req.params.id);
+    const codesDb = Datastore.create({ filename: path.join(__dirname, 'promocodes.db'), autoload: true });
+
+    codesDb.findOne({ _id: id }, (err, doc) => {
+        if (err || !doc) return res.status(404).json({ message: 'Nie znaleziono kodu.' });
+        const newActive = !doc.active;
+        codesDb.update({ _id: id }, { $set: { active: newActive } }, {}, (err) => {
+            if (err) return res.status(500).json({ message: 'Błąd zapisu.' });
+            addLog('promo', `${newActive ? 'Aktywowano' : 'Dezaktywowano'} kod ${doc.code}`, req);
+            res.json({ ok: true, active: newActive });
+        });
+    });
+});
+
+app.post('/api/admin/promo-codes/:id/delete', requireAdmin, (req, res) => {
+    const id = normalizeUsername(req.params.id);
+    const codesDb = Datastore.create({ filename: path.join(__dirname, 'promocodes.db'), autoload: true });
+
+    codesDb.findOne({ _id: id }, (err, doc) => {
+        if (err || !doc) return res.status(404).json({ message: 'Nie znaleziono kodu.' });
+        codesDb.remove({ _id: id }, {}, (err) => {
+            if (err) return res.status(500).json({ message: 'Błąd usuwania.' });
+            addLog('promo', `Usunięto kod ${doc.code}`, req);
+            res.json({ ok: true });
+        });
+    });
 });
 
 // ── GEMY: MERGE ───────────────────────────────────────────────

@@ -65,6 +65,7 @@
         <button class="chip" id="tab-btn-logs">Logi</button>
         <button class="chip" id="tab-btn-warnings">Ostrzeżenia</button>
         <button class="chip" id="tab-btn-system">📢 Wiadomości</button>
+        <button class="chip" id="tab-btn-promo">🎁 Promo</button>
       </div>
     </div>
 
@@ -114,6 +115,7 @@
             <option value="approve">✔ Approve</option>
             <option value="reject">✕ Reject</option>
             <option value="system-message">📢 System</option>
+            <option value="promo">🎁 Promo</option>
           </select>
           <button class="btn-ok" id="refresh-logs-btn" style="padding:8px 14px;font-size:.78rem">↻</button>
         </div>
@@ -140,6 +142,57 @@
       </div>
       <div id="all-warnings-list" style="display:flex;flex-direction:column;gap:8px"></div>
       <div class="empty-mini" id="all-warnings-empty" style="display:none">Brak ostrzeżeń.</div>
+    </div>
+
+    <!-- TAB: Promo Codes -->
+    <div id="tab-promo" style="display:none">
+      <div class="admin-title" style="margin-bottom:14px">🎁 Zarządzanie kodami promocyjnymi</div>
+
+      <!-- Formularz tworzenia -->
+      <div style="background:var(--surf);border:1px solid var(--border);border-radius:14px;padding:18px;margin-bottom:16px">
+        <div style="font-weight:700;font-size:.88rem;margin-bottom:12px">➕ Nowy kod promocyjny</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+          <input id="promo-code-input" class="login-input" placeholder="Nazwa kodu (np. WELCOME100)" style="width:180px;text-transform:uppercase">
+          <input id="promo-max-uses" class="login-input" type="number" placeholder="Max użyć (0 = ∞)" style="width:120px" value="0">
+        </div>
+
+        <div style="font-weight:700;font-size:.78rem;margin-bottom:8px;color:var(--muted)">Nagrody:</div>
+        <div id="promo-rewards-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px">
+          <!-- przykładowy pierwszy wiersz -->
+          <div class="promo-reward-row" style="display:flex;gap:8px;align-items:center">
+            <select class="promo-reward-type" style="padding:8px 10px;border-radius:8px;background:var(--surf2);border:1px solid var(--border2);color:var(--text);font-size:.78rem;font-weight:600;font-family:inherit;cursor:pointer;outline:none">
+              <option value="coins">🪙 Coins</option>
+              <option value="gems">💎 Gems</option>
+            </select>
+            <input class="promo-coins-amount" type="number" placeholder="Kwota 🪙" style="width:130px;padding:8px 10px;border-radius:8px;background:var(--surf2);border:1px solid var(--border2);color:var(--text);font-size:.78rem;font-family:inherit;outline:none" value="100">
+            <select class="promo-gem-select" style="display:none;padding:8px 10px;border-radius:8px;background:var(--surf2);border:1px solid var(--border2);color:var(--text);font-size:.75rem;font-weight:600;font-family:inherit;cursor:pointer;outline:none">
+              <option value="Gem 💎 1M">Gem 💎 1M</option>
+              <option value="Gem 💎 10M">Gem 💎 10M</option>
+              <option value="Gem 💎 25M">Gem 💎 25M</option>
+              <option value="Gem 💎 50M">Gem 💎 50M</option>
+              <option value="Gem 💎 100M">Gem 💎 100M</option>
+              <option value="Gem 💎 500M">Gem 💎 500M</option>
+            </select>
+            <input class="promo-gem-qty" type="number" placeholder="Ilość" style="display:none;width:70px;padding:8px 10px;border-radius:8px;background:var(--surf2);border:1px solid var(--border2);color:var(--text);font-size:.78rem;font-family:inherit;outline:none" value="1">
+            <button class="promo-remove-reward" style="padding:6px 10px;border-radius:6px;background:rgba(232,65,24,.1);border:1px solid rgba(232,65,24,.25);color:var(--red);font-size:.72rem;font-weight:700;cursor:pointer">✕</button>
+          </div>
+        </div>
+        <button id="promo-add-reward-btn" style="padding:6px 14px;border-radius:8px;background:var(--surf2);border:1px solid var(--border2);color:var(--muted);font-size:.75rem;font-weight:700;cursor:pointer;margin-bottom:12px">+ Dodaj nagrodę</button>
+
+        <div style="display:flex;gap:10px;align-items:center">
+          <button id="promo-create-btn" class="flip-btn" style="padding:10px 20px;font-size:.82rem;width:auto">🎁 Utwórz kod</button>
+          <span id="promo-create-status" style="font-size:.82rem;font-weight:700"></span>
+        </div>
+      </div>
+
+      <!-- Lista kodów -->
+      <div id="promo-codes-list" style="display:flex;flex-direction:column;gap:8px"></div>
+      <div class="empty-mini" id="promo-empty" style="display:none">Brak kodów promocyjnych.</div>
+      <div id="promo-pagination" style="display:none;margin-top:14px;align-items:center;justify-content:center;gap:12px">
+        <button id="promo-prev-btn" style="padding:8px 16px;border-radius:8px;background:var(--surf2);border:1px solid var(--border2);color:var(--text);font-weight:700;font-size:.82rem;cursor:pointer;font-family:inherit">← Poprzednia</button>
+        <span id="promo-page-info" style="font-size:.85rem;font-weight:700;color:var(--muted)"></span>
+        <button id="promo-next-btn" style="padding:8px 16px;border-radius:8px;background:var(--surf2);border:1px solid var(--border2);color:var(--text);font-weight:700;font-size:.82rem;cursor:pointer;font-family:inherit">Następna →</button>
+      </div>
     </div>
 
     <!-- TAB: Wiadomości systemowe -->
@@ -212,15 +265,17 @@
   let playersPage = 1;
   let playersSearch = '';
   let logsPage = 1;
+  let promoPage = 1;
   const PLAYERS_LIMIT = 20;
   const LOGS_LIMIT = 50;
+  const PROMO_LIMIT = 20;
 
 
 
   // ── TAB SWITCHING: update for new tabs ──
   function switchTab(tab) {
     currentAdminTab = tab;
-    ['tab-requests','tab-players','tab-logs','tab-warnings','tab-system'].forEach(id => {
+    ['tab-requests','tab-players','tab-logs','tab-warnings','tab-system','tab-promo'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = id === 'tab-' + tab ? 'block' : 'none';
     });
@@ -233,6 +288,7 @@
     else if (tab === 'logs') refreshLogs(1);
     else if (tab === 'warnings') refreshAllWarnings();
     else if (tab === 'system') refreshSystemHistory();
+    else if (tab === 'promo') refreshPromoCodes(1);
   }
 
   document.getElementById('tab-btn-requests').addEventListener('click', () => switchTab('requests'));
@@ -240,6 +296,7 @@
   document.getElementById('tab-btn-logs').addEventListener('click', () => switchTab('logs'));
   document.getElementById('tab-btn-warnings').addEventListener('click', () => switchTab('warnings'));
   document.getElementById('tab-btn-system').addEventListener('click', () => switchTab('system'));
+  document.getElementById('tab-btn-promo').addEventListener('click', () => switchTab('promo'));
 
   // ── LOGS ──
   async function refreshLogs(page) {
@@ -712,6 +769,206 @@
   });
   document.getElementById('players-next-btn').addEventListener('click', () => {
     refreshPlayers(playersPage + 1);
+  });
+
+  // ── PROMO CODES ──
+  // Obsługa zmiany typu nagrody (coins/gems)
+  document.addEventListener('change', (e) => {
+    if (e.target.classList.contains('promo-reward-type')) {
+      const row = e.target.closest('.promo-reward-row');
+      const coinsInput = row.querySelector('.promo-coins-amount');
+      const gemSelect = row.querySelector('.promo-gem-select');
+      const gemQty = row.querySelector('.promo-gem-qty');
+      if (e.target.value === 'gems') {
+        coinsInput.style.display = 'none';
+        gemSelect.style.display = '';
+        gemQty.style.display = '';
+      } else {
+        coinsInput.style.display = '';
+        gemSelect.style.display = 'none';
+        gemQty.style.display = 'none';
+      }
+    }
+  });
+
+  // Dodawanie nowego wiersza nagrody
+  document.getElementById('promo-add-reward-btn').addEventListener('click', () => {
+    const list = document.getElementById('promo-rewards-list');
+    const row = document.createElement('div');
+    row.className = 'promo-reward-row';
+    row.style.cssText = 'display:flex;gap:8px;align-items:center';
+    row.innerHTML = `
+      <select class="promo-reward-type" style="padding:8px 10px;border-radius:8px;background:var(--surf2);border:1px solid var(--border2);color:var(--text);font-size:.78rem;font-weight:600;font-family:inherit;cursor:pointer;outline:none">
+        <option value="coins">🪙 Coins</option>
+        <option value="gems">💎 Gems</option>
+      </select>
+      <input class="promo-coins-amount" type="number" placeholder="Kwota 🪙" style="width:130px;padding:8px 10px;border-radius:8px;background:var(--surf2);border:1px solid var(--border2);color:var(--text);font-size:.78rem;font-family:inherit;outline:none" value="100">
+      <select class="promo-gem-select" style="display:none;padding:8px 10px;border-radius:8px;background:var(--surf2);border:1px solid var(--border2);color:var(--text);font-size:.75rem;font-weight:600;font-family:inherit;cursor:pointer;outline:none">
+        <option value="Gem 💎 1M">Gem 💎 1M</option>
+        <option value="Gem 💎 10M">Gem 💎 10M</option>
+        <option value="Gem 💎 25M">Gem 💎 25M</option>
+        <option value="Gem 💎 50M">Gem 💎 50M</option>
+        <option value="Gem 💎 100M">Gem 💎 100M</option>
+        <option value="Gem 💎 500M">Gem 💎 500M</option>
+      </select>
+      <input class="promo-gem-qty" type="number" placeholder="Ilość" style="display:none;width:70px;padding:8px 10px;border-radius:8px;background:var(--surf2);border:1px solid var(--border2);color:var(--text);font-size:.78rem;font-family:inherit;outline:none" value="1">
+      <button class="promo-remove-reward" style="padding:6px 10px;border-radius:6px;background:rgba(232,65,24,.1);border:1px solid rgba(232,65,24,.25);color:var(--red);font-size:.72rem;font-weight:700;cursor:pointer">✕</button>
+    `;
+    list.appendChild(row);
+  });
+
+  // Usuwanie wiersza nagrody
+  document.addEventListener('click', (e) => {
+    if (e.target.classList.contains('promo-remove-reward')) {
+      const list = document.getElementById('promo-rewards-list');
+      if (list.children.length > 1) {
+        e.target.closest('.promo-reward-row').remove();
+      }
+    }
+  });
+
+  // Tworzenie kodu
+  document.getElementById('promo-create-btn').addEventListener('click', async () => {
+    const code = document.getElementById('promo-code-input').value.trim().toUpperCase();
+    const maxUses = parseInt(document.getElementById('promo-max-uses').value) || 0;
+    const statusEl = document.getElementById('promo-create-status');
+
+    if (!code) { statusEl.textContent = '❌ Podaj nazwę kodu!'; statusEl.style.color = 'var(--red)'; return; }
+
+    const rewardRows = document.querySelectorAll('#promo-rewards-list .promo-reward-row');
+    const rewards = [];
+    for (const row of rewardRows) {
+      const type = row.querySelector('.promo-reward-type').value;
+      if (type === 'coins') {
+        const amount = parseInt(row.querySelector('.promo-coins-amount').value) || 0;
+        if (amount > 0) rewards.push({ type: 'coins', amount });
+      } else if (type === 'gems') {
+        const name = row.querySelector('.promo-gem-select').value;
+        const qty = parseInt(row.querySelector('.promo-gem-qty').value) || 1;
+        rewards.push({ type: 'gems', name, qty });
+      }
+    }
+
+    if (!rewards.length) {
+      statusEl.textContent = '❌ Dodaj przynajmniej 1 nagrodę!';
+      statusEl.style.color = 'var(--red)';
+      return;
+    }
+
+    const btn = document.getElementById('promo-create-btn');
+    btn.disabled = true;
+    btn.textContent = 'Tworzenie...';
+    statusEl.textContent = '';
+
+    try {
+      await apiJson('/api/admin/promo-codes', {
+        method: 'POST',
+        body: JSON.stringify({ code, rewards, maxUses })
+      });
+      document.getElementById('promo-code-input').value = '';
+      statusEl.textContent = '✅ Kod utworzony!';
+      statusEl.style.color = 'var(--green)';
+      refreshPromoCodes(1);
+    } catch (e) {
+      statusEl.textContent = '❌ ' + e.message;
+      statusEl.style.color = 'var(--red)';
+    }
+
+    btn.disabled = false;
+    btn.textContent = '🎁 Utwórz kod';
+  });
+
+  // Wczytywanie listy kodów
+  async function refreshPromoCodes(page) {
+    if (page !== undefined) promoPage = page;
+    const list = document.getElementById('promo-codes-list');
+    const empty = document.getElementById('promo-empty');
+    const pagination = document.getElementById('promo-pagination');
+    const prevBtn = document.getElementById('promo-prev-btn');
+    const nextBtn = document.getElementById('promo-next-btn');
+    const pageInfo = document.getElementById('promo-page-info');
+
+    list.innerHTML = '';
+    pagination.style.display = 'none';
+    empty.style.display = 'none';
+
+    try {
+      const data = await apiJson('/api/admin/promo-codes?page=' + promoPage + '&limit=' + PROMO_LIMIT);
+      const codes = data.codes || [];
+      empty.style.display = codes.length ? 'none' : 'block';
+
+      if (!codes.length) return;
+
+      const total = data.total || 0;
+      const pages = data.pages || 1;
+      pagination.style.display = 'flex';
+      pageInfo.textContent = 'Strona ' + promoPage + ' z ' + pages + ' (łącznie ' + total + ' kodów)';
+      prevBtn.disabled = promoPage <= 1;
+      prevBtn.style.opacity = promoPage <= 1 ? '0.4' : '1';
+      nextBtn.disabled = promoPage >= pages;
+      nextBtn.style.opacity = promoPage >= pages ? '0.4' : '1';
+
+      codes.forEach(c => {
+        const isActive = c.active;
+        const rewardsStr = (c.rewards || []).map(r => {
+          if (r.type === 'coins') return '🪙 ' + fmt(r.amount);
+          if (r.type === 'gems') return '💎 ' + r.qty + 'x ' + r.name;
+          return '';
+        }).join(' + ') || '🪙 ' + fmt(c.reward || 0);
+
+        const card = document.createElement('div');
+        card.style.cssText = 'background:var(--surf);border:1px solid var(--border);border-radius:12px;padding:14px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap';
+        card.innerHTML = `
+          <div style="flex:1;min-width:160px">
+            <div style="font-family:'Orbitron',monospace;font-size:1rem;font-weight:900;letter-spacing:1px;color:${isActive ? 'var(--gold)' : 'var(--muted)'}">${escapeHtml(c.code)}</div>
+            <div style="font-size:.78rem;font-weight:700;margin-top:4px">${rewardsStr}</div>
+            <div style="font-size:.7rem;color:var(--muted);margin-top:4px">
+              Użyty: ${fmt(c.usedCount)}${c.maxUses > 0 ? ' / ' + fmt(c.maxUses) : ''} · ${escapeHtml(c.createdBy)} · ${timeAgo(c.createdAt)}
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            ${isActive
+              ? `<span style="font-size:.7rem;font-weight:700;padding:3px 10px;border-radius:6px;color:var(--green);background:rgba(46,213,115,.1);border:1px solid rgba(46,213,115,.2)">🟢 Aktywny</span>`
+              : `<span style="font-size:.7rem;font-weight:700;padding:3px 10px;border-radius:6px;color:var(--red);background:rgba(232,65,24,.1);border:1px solid rgba(232,65,24,.2)">🔴 Nieaktywny</span>`}
+            <button class="promo-toggle-btn" data-id="${escapeHtml(c._id)}" style="padding:6px 12px;border-radius:6px;background:var(--surf2);border:1px solid var(--border2);color:var(--text);font-size:.72rem;font-weight:700;cursor:pointer">${isActive ? 'Dezaktywuj' : 'Aktywuj'}</button>
+            <button class="promo-delete-btn" data-id="${escapeHtml(c._id)}" data-code="${escapeHtml(c.code)}" style="padding:6px 12px;border-radius:6px;background:rgba(232,65,24,.1);border:1px solid rgba(232,65,24,.25);color:var(--red);font-size:.72rem;font-weight:700;cursor:pointer">🗑 Usuń</button>
+          </div>
+        `;
+        list.appendChild(card);
+      });
+
+      // Toggle
+      list.querySelectorAll('.promo-toggle-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          try {
+            await apiJson('/api/admin/promo-codes/' + encodeURIComponent(btn.dataset.id) + '/toggle', { method: 'POST' });
+            await refreshPromoCodes();
+          } catch (e) { alert(e.message); }
+        });
+      });
+
+      // Delete
+      list.querySelectorAll('.promo-delete-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          if (!confirm('Usunąć kod ' + btn.dataset.code + '?')) return;
+          try {
+            await apiJson('/api/admin/promo-codes/' + encodeURIComponent(btn.dataset.id) + '/delete', { method: 'POST' });
+            await refreshPromoCodes();
+          } catch (e) { alert(e.message); }
+        });
+      });
+
+    } catch (e) {
+      list.innerHTML = `<div class="empty-mini">Błąd: ${escapeHtml(e.message)}</div>`;
+    }
+  }
+
+  // PROMO PAGINATION
+  document.getElementById('promo-prev-btn').addEventListener('click', () => {
+    if (promoPage > 1) refreshPromoCodes(promoPage - 1);
+  });
+  document.getElementById('promo-next-btn').addEventListener('click', () => {
+    refreshPromoCodes(promoPage + 1);
   });
 </script>
 
