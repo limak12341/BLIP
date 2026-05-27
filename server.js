@@ -758,7 +758,7 @@ app.post('/api/promo/redeem', requireLogin, (req, res) => {
         if (!code || !code.trim()) return res.status(400).json({ message: 'Wpisz kod promocyjny!' });
 
         const codeStr = code.trim().toUpperCase();
-        const codesDb = Datastore.create({ filename: path.join(__dirname, 'promocodes.db'), autoload: true });
+        const codesDb = new Datastore({ filename: path.join(__dirname, 'promocodes.db'), autoload: true });
         codesDb.findOne({ code: codeStr, active: true }, (err, doc) => {
             if (err || !doc) return res.status(400).json({ message: 'Nieprawidłowy lub wygasły kod promocyjny!' });
             if (doc.maxUses && doc.usedCount >= doc.maxUses) return res.status(400).json({ message: 'Kod został już wykorzystany maksymalną liczbę razy!' });
@@ -812,7 +812,7 @@ app.post('/api/promo/redeem', requireLogin, (req, res) => {
 
 // ── ADMIN: PROMO CODE MANAGEMENT ───────────────────────────────
 app.get('/api/admin/promo-codes', requireAdmin, (req, res) => {
-    const codesDb = Datastore.create({ filename: path.join(__dirname, 'promocodes.db'), autoload: true });
+    const codesDb = new Datastore({ filename: path.join(__dirname, 'promocodes.db'), autoload: true });
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
     const skip = (page - 1) * limit;
@@ -848,7 +848,7 @@ app.post('/api/admin/promo-codes', requireAdmin, (req, res) => {
     }
 
     const codeStr = code.trim().toUpperCase();
-    const codesDb = Datastore.create({ filename: path.join(__dirname, 'promocodes.db'), autoload: true });
+    const codesDb = new Datastore({ filename: path.join(__dirname, 'promocodes.db'), autoload: true });
 
     codesDb.findOne({ code: codeStr }, (err, existing) => {
         if (err) return res.status(500).json({ message: 'Błąd bazy.' });
@@ -874,7 +874,7 @@ app.post('/api/admin/promo-codes', requireAdmin, (req, res) => {
 
 app.post('/api/admin/promo-codes/:id/toggle', requireAdmin, (req, res) => {
     const id = normalizeUsername(req.params.id);
-    const codesDb = Datastore.create({ filename: path.join(__dirname, 'promocodes.db'), autoload: true });
+    const codesDb = new Datastore({ filename: path.join(__dirname, 'promocodes.db'), autoload: true });
 
     codesDb.findOne({ _id: id }, (err, doc) => {
         if (err || !doc) return res.status(404).json({ message: 'Nie znaleziono kodu.' });
@@ -889,7 +889,7 @@ app.post('/api/admin/promo-codes/:id/toggle', requireAdmin, (req, res) => {
 
 app.post('/api/admin/promo-codes/:id/delete', requireAdmin, (req, res) => {
     const id = normalizeUsername(req.params.id);
-    const codesDb = Datastore.create({ filename: path.join(__dirname, 'promocodes.db'), autoload: true });
+    const codesDb = new Datastore({ filename: path.join(__dirname, 'promocodes.db'), autoload: true });
 
     codesDb.findOne({ _id: id }, (err, doc) => {
         if (err || !doc) return res.status(404).json({ message: 'Nie znaleziono kodu.' });
