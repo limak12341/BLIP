@@ -225,22 +225,22 @@
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
         <div class="admin-card">
           <div style="font-weight:700;font-size:.82rem;margin-bottom:10px;color:var(--muted)">🎮 Gry w ostatnich 7 dniach</div>
-          <canvas id="chart-games-by-day" height="200"></canvas>
+          <div style="position:relative;height:220px"><canvas id="chart-games-by-day"></canvas></div>
         </div>
         <div class="admin-card">
           <div style="font-weight:700;font-size:.82rem;margin-bottom:10px;color:var(--muted)">👥 Rejestracje w ostatnich 7 dniach</div>
-          <canvas id="chart-registrations" height="200"></canvas>
+          <div style="position:relative;height:220px"><canvas id="chart-registrations"></canvas></div>
         </div>
       </div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
         <div class="admin-card">
-          <div style="font-weight:700;font-size:.82rem;margin-bottom:10px;color:var(--muted)">🕐 Gry w ostatnich 24h (według godziny)</div>
-          <canvas id="chart-games-by-hour" height="200"></canvas>
+          <div style="font-weight:700;font-size:.82rem;margin-bottom:10px;color:var(--muted)">🕐 Gry w ostatnich 24h</div>
+          <div style="position:relative;height:220px"><canvas id="chart-games-by-hour"></canvas></div>
         </div>
         <div class="admin-card">
           <div style="font-weight:700;font-size:.82rem;margin-bottom:10px;color:var(--muted)">📋 Logi według typu (ostatnie 500)</div>
-          <canvas id="chart-logs-by-type" height="200"></canvas>
+          <div style="position:relative;height:220px"><canvas id="chart-logs-by-type"></canvas></div>
         </div>
       </div>
 
@@ -1056,12 +1056,12 @@
         },
         scales: {
           x: {
-            ticks: { color: '#888', font: { size: 10, family: 'Inter' } },
+            ticks: { color: '#888', font: { size: 9, family: 'Inter' }, maxRotation: 60, minRotation: 30, autoSkip: true, maxTicksLimit: 10 },
             grid: { display: false }
           },
           y: {
             beginAtZero: true,
-            ticks: { color: '#888', font: { size: 10, family: 'Inter' }, stepSize: 1 },
+            ticks: { color: '#888', font: { size: 10, family: 'Inter' }, stepSize: 1, precision: 0 },
             grid: { color: 'rgba(255,255,255,.04)' }
           }
         }
@@ -1105,13 +1105,14 @@
         });
       }
 
-      // 3. Gry w ostatnich 24h (liniowy)
+      // 3. Gry w ostatnich 24h (liniowy) — pokazuję co 3. godzinę
       const ctx3 = document.getElementById('chart-games-by-hour');
       if (ctx3 && data.gamesByHour) {
+        const hourLabels = (data.gamesByHour || []).map((d, i) => i % 3 === 0 ? d.hour : '');
         dashCharts.gamesByHour = new Chart(ctx3, {
           type: 'line',
           data: {
-            labels: (data.gamesByHour || []).map(d => d.hour),
+            labels: hourLabels,
             datasets: [{
               data: (data.gamesByHour || []).map(d => d.count),
               borderColor: '#0abde3',
@@ -1123,7 +1124,21 @@
               pointBackgroundColor: '#0abde3'
             }]
           },
-          options: { ...chartDefaults, plugins: { ...chartDefaults.plugins, legend: { display: false } } }
+          options: {
+            ...chartDefaults,
+            plugins: { ...chartDefaults.plugins, legend: { display: false } },
+            scales: {
+              x: {
+                ticks: { color: '#888', font: { size: 8, family: 'Inter' }, maxRotation: 45, minRotation: 0, autoSkip: false, maxTicksLimit: 12 },
+                grid: { display: false }
+              },
+              y: {
+                beginAtZero: true,
+                ticks: { color: '#888', font: { size: 10, family: 'Inter' }, stepSize: 1, precision: 0 },
+                grid: { color: 'rgba(255,255,255,.04)' }
+              }
+            }
+          }
         });
       }
 
