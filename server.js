@@ -1472,10 +1472,11 @@ io.on('connection', (socket) => {
             };
             activeGames.set(gameId, game);
             saveLobbyGame(game);
-            // Aktualizuj escrow z właściwym gameId
-            escrowDb.update({ userId: sess.robloxId, gameId: 'temp' }, { $set: { gameId } }, {}, () => {});
-            socket.emit('gameCreated', { gameId });
-            broadcastGames();
+            // Aktualizuj escrow z właściwym gameId, potem emituj eventy
+            escrowDb.update({ userId: sess.robloxId, gameId: 'temp' }, { $set: { gameId } }, {}, () => {
+                socket.emit('gameCreated', { gameId });
+                broadcastGames();
+            });
         });
     });
 
@@ -1681,7 +1682,7 @@ if (process.env.NODE_ENV === 'test') {
 }
 
 // Eksport dla testów
-module.exports = { app, server, normalizeUsername, fmt, guessCategory, newId, sanitizeItems, GEMS, GEM_MERGE_RECIPES };
+module.exports = { app, server, normalizeUsername, fmt, guessCategory, newId, sanitizeItems, GEMS, GEM_MERGE_RECIPES, addToInventory, removeFromInventory };
 
 if (process.env.NODE_ENV !== 'test') {
     server.listen(PORT, '0.0.0.0', () => {
