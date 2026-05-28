@@ -22,23 +22,31 @@
       <div class="login-logo-wrap">
         <div class="login-coin">🪙</div>
         <div class="login-logo">B<span>FLIP</span></div>
-      </div>
-      <p class="login-sub">Zaloguj się przez weryfikację Bio na Robloxie</p>
+      </div>        <p class="login-sub">Zaloguj się przez weryfikację Bio na Robloxie</p>
+        <!-- Zapamiętaj mnie -->
+        <label class="remember-me-wrap">
+          <input type="checkbox" id="remember-me" class="remember-me-checkbox">
+          <span class="remember-me-checkmark"></span>
+          <span class="remember-me-label">Zapamiętaj mnie</span>
+        </label>
       <div class="login-steps">
         <div class="login-step active" id="step-indicator-1">
           <span class="step-circle">1</span>
           <span class="step-label">Generuj kod</span>
         </div>
-        <div class="step-connector"></div>
+        <div class="step-connector"><div class="step-connector-fill" id="connector-1"></div></div>
         <div class="login-step" id="step-indicator-2">
           <span class="step-circle">2</span>
           <span class="step-label">Wpisz w Bio</span>
         </div>
-        <div class="step-connector"></div>
+        <div class="step-connector"><div class="step-connector-fill" id="connector-2"></div></div>
         <div class="login-step" id="step-indicator-3">
           <span class="step-circle">3</span>
           <span class="step-label">Zweryfikuj</span>
         </div>
+      </div>
+      <div class="login-progress-bar">
+        <div class="login-progress-fill" id="login-progress-fill"></div>
       </div>
       <div id="verify-step-1" class="verify-step">
         <div class="login-field">
@@ -73,11 +81,18 @@
   <!-- ── SIDEBAR ─────────────────────────────────── -->
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-inner">
+      <div class="sidebar-logo-row">
       <div class="sidebar-logo">B<span>FLIP</span></div>
+      <button class="sidebar-collapse-btn" onclick="toggleSidebar()" title="Zwiń sidebar">◀</button>
+      </div>
 
       <!-- SECTION: GAMES -->
       <div class="sidebar-section-label">GAMES</div>
       <nav class="sidebar-nav">
+        <button class="sidebar-tab" data-tab="dashboard" onclick="showTab('dashboard')">
+          <span class="st-icon">🏠</span>
+          <span class="st-label">Home</span>
+        </button>
         <button class="sidebar-tab" data-tab="coinflip" onclick="showTab('coinflip')">
           <span class="st-icon">⚡</span>
           <span class="st-label">Coinflip</span>
@@ -212,8 +227,110 @@
     <!-- ── MAIN CONTAINER ────────────────────────── -->
     <main class="main-container">
 
+      <!-- TAB: DASHBOARD / HUB (domyślny widok) -->
+      <div id="tab-dashboard" class="tab-content">
+        <div class="dashboard-grid">
+          <!-- Quick Stats -->
+          <div class="dash-card dash-card-stats">
+            <div class="dash-card-header">
+              <span class="dash-card-icon">📊</span>
+              <span class="dash-card-title">Twoje statystyki</span>
+            </div>
+            <div class="dash-stats-row">
+              <div class="dash-stat">
+                <span class="dash-stat-val gold" id="dash-balance">—</span>
+                <span class="dash-stat-label">Saldo</span>
+              </div>
+              <div class="dash-stat">
+                <span class="dash-stat-val" id="dash-games">0</span>
+                <span class="dash-stat-label">Gier</span>
+              </div>
+              <div class="dash-stat">
+                <span class="dash-stat-val green" id="dash-wins">0</span>
+                <span class="dash-stat-label">Wygrane</span>
+              </div>
+              <div class="dash-stat">
+                <span class="dash-stat-val red" id="dash-losses">0</span>
+                <span class="dash-stat-label">Przegrane</span>
+              </div>
+            </div>
+            <div class="dash-profit-row" id="dash-profit-row">
+              <span class="dash-profit-label">Zysk / Strata</span>
+              <span class="dash-profit-val" id="dash-profit">🪙 0</span>
+            </div>
+          </div>
+
+          <!-- Quick Actions -->
+          <div class="dash-card dash-card-actions">
+            <div class="dash-card-header">
+              <span class="dash-card-icon">⚡</span>
+              <span class="dash-card-title">Szybkie akcje</span>
+            </div>
+            <div class="dash-actions-grid">
+              <button class="dash-action-btn" onclick="showTab('coinflip');showCoinflipSubtab('lobby')">
+                <span class="dash-action-icon">⚡</span>
+                <span class="dash-action-label">Coinflip</span>
+                <span class="dash-action-sub">Graj PVP</span>
+              </button>
+              <button class="dash-action-btn" onclick="showTab('coinflip');showCoinflipSubtab('deposit')">
+                <span class="dash-action-icon">📥</span>
+                <span class="dash-action-label">Depozyt</span>
+                <span class="dash-action-sub">Wpłać itemy</span>
+              </button>
+              <button class="dash-action-btn" onclick="openPromoCode()">
+                <span class="dash-action-icon">🎁</span>
+                <span class="dash-action-label">Promo Code</span>
+                <span class="dash-action-sub">Odbierz nagrody</span>
+              </button>
+              <button class="dash-action-btn" onclick="showTab('leaderboard')">
+                <span class="dash-action-icon">🏆</span>
+                <span class="dash-action-label">Ranking</span>
+                <span class="dash-action-sub">Top gracze</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Live Feed (ostatnie gry) -->
+          <div class="dash-card dash-card-feed">
+            <div class="dash-card-header">
+              <span class="dash-card-icon">📡</span>
+              <span class="dash-card-title">Ostatnie gry</span>
+              <span class="dash-card-badge" id="dash-feed-count">0</span>
+            </div>
+            <div class="dash-feed-scroll" id="dash-feed-scroll">
+              <div class="dash-feed-empty">Brak ostatnich gier. Zagraj pierwszą!</div>
+            </div>
+          </div>
+
+          <!-- Online Players / Server Info -->
+          <div class="dash-card dash-card-server">
+            <div class="dash-card-header">
+              <span class="dash-card-icon">🌐</span>
+              <span class="dash-card-title">Serwer</span>
+            </div>
+            <div class="dash-server-stats">
+              <div class="dash-server-stat">
+                <span class="dash-server-icon">👤</span>
+                <span class="dash-server-label">Online</span>
+                <span class="dash-server-val" id="dash-online">0</span>
+              </div>
+              <div class="dash-server-stat">
+                <span class="dash-server-icon">🪙</span>
+                <span class="dash-server-label">Total Wagered</span>
+                <span class="dash-server-val" id="dash-total-wagered">0</span>
+              </div>
+              <div class="dash-server-stat">
+                <span class="dash-server-icon">🎮</span>
+                <span class="dash-server-label">Aktywne gry</span>
+                <span class="dash-server-val" id="dash-active-games">0</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- TAB: LEADERBOARD -->
-      <div id="tab-leaderboard" class="tab-content">
+      <div id="tab-leaderboard" class="tab-content" style="display:none">
         <div class="lb-header">
           <span class="lb-title">🏆 Leaderboard</span>
           <span class="lb-sub">Top 50 graczy według zysku</span>
@@ -344,6 +461,7 @@
       <span class="chat-header-icon">💬</span>
       <span class="chat-header-title">Chat</span>
       <span class="chat-online" id="chat-online"></span>
+      <button class="chat-collapse-btn" onclick="toggleChat()" title="Zwiń czat">▶</button>
     </div>
     <div class="chat-messages" id="chat-messages">
       <div class="chat-loading">
@@ -801,6 +919,32 @@
 <script src="/socket.io/socket.io.js"></script>
 <script src="script.js"></script>
 <script>
+// ── LOGOWANIE: Zapamiętaj mnie ──────────────────────────
+(function loadRememberedUser() {
+    try {
+        const saved = localStorage.getItem('bf_username');
+        if (saved) {
+            document.getElementById('rob-nick').value = saved;
+            document.getElementById('remember-me').checked = true;
+        }
+    } catch(e) {}
+})();
+
+function updateLoginProgress(step) {
+    const fill = document.getElementById('login-progress-fill');
+    if (!fill) return;
+    const pcts = { 1: 0, 2: 33, 3: 66, 4: 100 };
+    fill.style.width = (pcts[step] || 0) + '%';
+}
+
+function showLoginError(msg, isSuccess) {
+    const el = document.getElementById('login-error');
+    if (!el) return;
+    el.textContent = msg;
+    el.style.color = isSuccess ? '#2ed573' : '#ff4757';
+    el.className = 'login-error' + (isSuccess ? ' success' : '');
+}
+
 function copyCode() {
     const code = document.getElementById('code-display').innerText;
     navigator.clipboard.writeText(code).then(() => {
@@ -809,50 +953,120 @@ function copyCode() {
         setTimeout(() => btn.textContent = '📋', 2000);
     }).catch(() => {});
 }
+
 async function startVerification() {
     const username = document.getElementById('rob-nick').value.trim();
-    if (!username) return alert('Wpisz nick!');
-    const btn = document.querySelector('#verify-step-1 .login-btn');
-    btn.disabled = true; btn.textContent = 'Generowanie...';
-    try {
-        const res = await fetch('/verify-start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ username }) });
-        const data = await res.json();
-        if (data.code) {
-            document.getElementById('code-display').innerText = data.code;
-            document.getElementById('verify-step-1').style.display = 'none';
-            document.getElementById('verify-step-2').style.display = 'block';
-            document.getElementById('step-indicator-1').classList.add('done');
-            document.getElementById('step-indicator-2').classList.add('active');
-        } else {
-            document.getElementById('login-error').textContent = data.message || 'Błąd!';
-            btn.disabled = false; btn.innerHTML = '<span class="btn-icon">🔑</span>Generuj kod';
-        }
-    } catch(e) {
-        document.getElementById('login-error').textContent = 'Błąd połączenia z serwerem.';
-        btn.disabled = false; btn.innerHTML = '<span class="btn-icon">🔑</span>Generuj kod';
+    if (!username) {
+        showLoginError('⚠️ Wpisz swój nick Roblox!');
+        return;
     }
+    if (username.length < 2 || username.length > 20) {
+        showLoginError('⚠️ Nick musi mieć 2-20 znaków.');
+        return;
+    }
+    const btn = document.querySelector('#verify-step-1 .login-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-icon">⏳</span> Generowanie...';
+    showLoginError('');
+    
+    let retries = 0;
+    const maxRetries = 2;
+    
+    async function attempt() {
+        try {
+            const res = await fetch('/verify-start', { 
+                method:'POST', 
+                headers:{'Content-Type':'application/json'}, 
+                body: JSON.stringify({ username }),
+                signal: AbortSignal.timeout(10000)
+            });
+            const data = await res.json();
+            if (data.code) {
+                document.getElementById('code-display').innerText = data.code;
+                document.getElementById('verify-step-1').style.display = 'none';
+                document.getElementById('verify-step-2').style.display = 'block';
+                document.getElementById('step-indicator-1').classList.add('done');
+                document.getElementById('step-indicator-1').classList.remove('active');
+                document.getElementById('step-indicator-2').classList.add('active');
+                // Update connectors
+                document.getElementById('connector-1').style.width = '100%';
+                updateLoginProgress(2);
+                showLoginError('✅ Kod wygenerowany! Wpisz go w Bio na Robloxie.', true);
+            } else {
+                showLoginError(data.message || '❌ Błąd generowania kodu.');
+                btn.disabled = false;
+                btn.innerHTML = '<span class="btn-icon">🔑</span> Generuj kod';
+            }
+        } catch(e) {
+            if (retries < maxRetries) {
+                retries++;
+                showLoginError('⏳ Błąd połączenia. Próbuję ponownie (' + retries + '/' + maxRetries + ')...');
+                await new Promise(r => setTimeout(r, 1500));
+                return attempt();
+            }
+            showLoginError('❌ Błąd połączenia z serwerem. Sprawdź swoje połączenie internetowe.');
+            btn.disabled = false;
+            btn.innerHTML = '<span class="btn-icon">🔑</span> Generuj kod';
+        }
+    }
+    
+    await attempt();
 }
+
 async function checkVerification() {
     const username = document.getElementById('rob-nick').value.trim();
     const btn = document.querySelector('#verify-step-2 .login-btn');
-    btn.disabled = true; btn.textContent = 'Sprawdzanie...';
-    try {
-        const res = await fetch('/verify-check', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ username }) });
-        const data = await res.json();
-        if (data.success) {
-            document.getElementById('step-indicator-2').classList.add('done');
-            document.getElementById('step-indicator-3').classList.add('active');
-            document.getElementById('login-error').textContent = '✅ Logowanie pomyślne! Zaraz nastąpi przekierowanie...';
-            document.getElementById('login-error').style.color = '#2ed573';
-            setTimeout(() => location.reload(), 800);
-        } else {
-            document.getElementById('login-error').textContent = data.message || 'Kod nie znaleziony w Bio!';
-            btn.disabled = false; btn.innerHTML = '<span class="btn-icon">✓</span>Sprawdź i zaloguj';
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-icon">⏳</span> Sprawdzanie...';
+    showLoginError('');
+    
+    let retries = 0;
+    const maxRetries = 2;
+    
+    async function attempt() {
+        try {
+            const res = await fetch('/verify-check', { 
+                method:'POST', 
+                headers:{'Content-Type':'application/json'}, 
+                body: JSON.stringify({ username }),
+                signal: AbortSignal.timeout(10000)
+            });
+            const data = await res.json();
+            if (data.success) {
+                // Save to localStorage if "remember me" is checked
+                const rememberMe = document.getElementById('remember-me');
+                if (rememberMe && rememberMe.checked) {
+                    try { localStorage.setItem('bf_username', username); } catch(e) {}
+                } else {
+                    try { localStorage.removeItem('bf_username'); } catch(e) {}
+                }
+                
+                document.getElementById('step-indicator-2').classList.add('done');
+                document.getElementById('step-indicator-2').classList.remove('active');
+                document.getElementById('step-indicator-3').classList.add('active');
+                document.getElementById('connector-2').style.width = '100%';
+                updateLoginProgress(4);
+                showLoginError('✅ Logowanie pomyślne! Zaraz nastąpi przekierowanie...', true);
+                setTimeout(() => location.reload(), 800);
+            } else {
+                showLoginError(data.message || '❌ Kod nie znaleziony w Bio. Upewnij się, że zapisałeś profil Roblox!');
+                btn.disabled = false;
+                btn.innerHTML = '<span class="btn-icon">✓</span> Sprawdź i zaloguj';
+            }
+        } catch(e) {
+            if (retries < maxRetries) {
+                retries++;
+                showLoginError('⏳ Błąd połączenia. Próbuję ponownie (' + retries + '/' + maxRetries + ')...');
+                await new Promise(r => setTimeout(r, 1500));
+                return attempt();
+            }
+            showLoginError('❌ Błąd połączenia z serwerem. Sprawdź swoje połączenie i spróbuj ponownie.');
+            btn.disabled = false;
+            btn.innerHTML = '<span class="btn-icon">✓</span> Sprawdź i zaloguj';
         }
-    } catch(e) {
-        document.getElementById('login-error').textContent = 'Błąd połączenia z serwerem.';
-        btn.disabled = false; btn.innerHTML = '<span class="btn-icon">✓</span>Sprawdź i zaloguj';
     }
+    
+    await attempt();
 }
 </script>
 </body>

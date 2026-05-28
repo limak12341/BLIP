@@ -5,6 +5,36 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 
+// ── Rate limiting ────────────────────────────────────────────
+const loginAttempts = new Map(); // ip -> { count, resetAt }
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOGIN_WINDOW_MS = 10000;
+
+// ── Inactivity timeout ──────────────────────────────────────
+const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000; // 30 min
+const socketActivityTimers = new Map();
+
+function resetInactivityTimer(socket) {
+    const existing = socketActivityTimers.get(socket.id);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+        if (socket.connected) {
+            socket.emit('sessionExpired', { message: 'Session expired due to inactivity.' });
+            socket.disconnect(true);
+        }
+        socketActivityTimers.delete(socket.id);
+    }, INACTIVITY_TIMEOUT_MS);
+    socketActivityTimers.set(socket.id, timer);
+}
+
+function validateUsername(name) {
+    if (!name || typeof name !== 'string') return false;
+    const trimmed = name.trim();
+    if (trimmed.length < 2 || trimmed.length > 20) return false;
+    if (!/^[a-zA-Z0-9_\-\u0100-\u024F]+$/.test(trimmed)) return false;
+    return true;
+}
+
 const db = require('./modules/db');
 const pf = require('./modules/provablyFair');
 const games = require('./modules/games');
@@ -36,13 +66,40 @@ io.on('connection', (socket) => {
     socket.emit('chatHistory', chatHistory.slice(-100));
 
     socket.on('login', (data) => {
-        const username = data.username;
+        // Rate limiting
+        const ip = socket.handshake?.address || 'unknown';
+        const now = Date.now();
+        let attempt = loginAttempts.get(ip);
+        if (!attempt || now > attempt.resetAt) {
+            attempt = { count: 0, resetAt: now + LOGIN_WINDOW_MS };
+            loginAttempts.set(ip, attempt);
+        }
+        attempt.count++;
+        if (attempt.count > MAX_LOGIN_ATTEMPTS) {
+            const retryAfter = Math.ceil((attempt.resetAt - now) / 1000);
+            socket.emit('loginError', { message: `Too many attempts. Try again in ${retryAfter}s.` });
+            return;
+        }
+
+        const username = (data.username || '').trim();
+        
+        // Validate username
+        if (!validateUsername(username)) {
+            socket.emit('loginError', { message: 'Invalid username (2-20 chars, letters/numbers/underscores/hyphens only).' });
+            return;
+        }
+
         const ban = db.isBanned(username);
         if (ban) {
             socket.emit('banned', { reason: ban.reason || 'Banned', expires: ban.expires });
             return;
         }
+        
         loggedInUser = username;
+        
+        // Start inactivity timer
+        resetInactivityTimer(socket);
+        
         const player = db.getPlayer(username);
         socket.emit('loginSuccess', { username, coins: player.coins, gems: player.gems, pet: player.pet, clientSeed: player.clientSeed, nonce: player.nonce, serverSeedHash: pf.getServerSeedHash() });
         socket.broadcast.emit('systemMessage', `${username} joined the game!`);
@@ -84,6 +141,11 @@ io.on('connection', (socket) => {
         db.savePlayer(data.target, receiver);
         io.emit('systemMessage', `${loggedInUser} tipped ${amount} coins to ${data.target}! 💰`);
         io.emit('playerListUpdate');
+    });
+
+    // Reset inactivity timer on any activity
+    socket.onAny(() => {
+        if (loggedInUser) resetInactivityTimer(socket);
     });
 
     socket.on('chatMessage', (data) => {
@@ -614,6 +676,9 @@ io.on('connection', (socket) => {
     // Disconnect
     socket.on('disconnect', () => {
         console.log('Disconnected:', socket.id);
+        const timer = socketActivityTimers.get(socket.id);
+        if (timer) clearTimeout(timer);
+        socketActivityTimers.delete(socket.id);
         Object.keys(games.activeGames).forEach(id => {
             if (games.activeGames[id].creatorSocket === socket.id) {
                 if (games.activeGames[id].status === 'waiting') {

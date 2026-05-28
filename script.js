@@ -271,14 +271,36 @@ socket.on('sessionOk', (data) => {
         document.getElementById('ps-avatar').src = data.avatarUrl;
     }
     document.getElementById('ps-username').textContent = data.username;
+    // Update balance display
+    if (data.coins !== undefined) {
+        document.getElementById('balance-amount').textContent = fmt(data.coins);
+    }
     refreshProfileStats();
     refreshLevel();
     socket.emit('getHistory');
     socket.emit('getChatHistory');
     socket.emit('getRecentGames');
-    showTab('leaderboard');
+    showTab('dashboard');
+    refreshDashboard();
     // online count
     socket.emit('countOnline');
+});
+
+// Update balance on playerListUpdate (after bets, tips, etc.)
+socket.on('playerListUpdate', async () => {
+    // Refresh balance from API
+    try {
+        const stats = await apiJson('/api/profile/stats');
+        const balanceEl = document.getElementById('balance-amount');
+        if (balanceEl && stats.coins !== undefined) {
+            balanceEl.textContent = fmt(stats.coins);
+        }
+        // Also update dashboard if visible
+        const dashTab = document.getElementById('tab-dashboard');
+        if (dashTab && dashTab.style.display !== 'none') {
+            refreshDashboard();
+        }
+    } catch (e) {}
 });
 
 socket.on('sessionNone', () => { loginOverlay.style.display = 'flex'; });
@@ -439,6 +461,100 @@ function showPromoMessage(text, type) {
     el.style.display = 'block';
 }
 
+// ── SIDEBAR / CHAT COLLAPSE ───────────────────────────────────
+window.toggleSidebar = function() {
+    const layout = document.querySelector('.app-layout');
+    if (!layout) return;
+    layout.classList.toggle('sidebar-collapsed');
+    const btn = document.querySelector('.sidebar-collapse-btn');
+    if (btn) {
+        btn.textContent = layout.classList.contains('sidebar-collapsed') ? '▶' : '◀';
+        btn.title = layout.classList.contains('sidebar-collapsed') ? 'Rozwiń sidebar' : 'Zwiń sidebar';
+    }
+};
+
+window.toggleChat = function() {
+    const layout = document.querySelector('.app-layout');
+    if (!layout) return;
+    layout.classList.toggle('chat-collapsed');
+    const btn = document.querySelector('.chat-collapse-btn');
+    if (btn) {
+        btn.textContent = layout.classList.contains('chat-collapsed') ? '◀' : '▶';
+        btn.title = layout.classList.contains('chat-collapsed') ? 'Otwórz czat' : 'Zwiń czat';
+    }
+};
+
+// ── DASHBOARD ────────────────────────────────────────────────
+window.refreshDashboard = async function() {
+    try {
+        const stats = await apiJson('/api/profile/stats');
+        const { total = 0, wins = 0, losses = 0, profit = 0 } = stats;
+        const balanceEl = document.getElementById('balance-amount');
+        document.getElementById('dash-balance').textContent = balanceEl ? (balanceEl.textContent || '—') : '—';
+        document.getElementById('dash-games').textContent = total;
+        document.getElementById('dash-wins').textContent = wins;
+        document.getElementById('dash-losses').textContent = losses;
+        const profitRow = document.getElementById('dash-profit-row');
+        const profitEl = document.getElementById('dash-profit');
+        const sign = profit >= 0 ? '+' : '';
+        profitEl.textContent = sign + '🪙 ' + fmt(Math.abs(profit));
+        profitRow.className = 'dash-profit-row ' + (profit >= 0 ? 'green' : 'red');
+    } catch (e) {}
+    
+    // Server stats from DOM (populated by socket events)
+    const onlineEl = document.getElementById('chat-online');
+    if (onlineEl) {
+        const el = document.getElementById('dash-online');
+        if (el) el.textContent = onlineEl.textContent.replace(/[^0-9]/g, '') || '0';
+    }
+    const countEl = document.getElementById('lobby-count');
+    if (countEl) {
+        const el = document.getElementById('dash-active-games');
+        if (el) el.textContent = parseInt(countEl.textContent) || '0';
+    }
+};
+
+// Socket listeners for real-time dashboard server stats
+socket.on('onlineCount', (count) => {
+    const el = document.getElementById('chat-online');
+    if (el) el.textContent = count + ' online';
+    const dashEl = document.getElementById('dash-online');
+    if (dashEl) dashEl.textContent = String(count);
+});
+
+socket.on('gamesList', (games) => {
+    const el = document.getElementById('dash-active-games');
+    if (el) el.textContent = String(games.length);
+});
+
+function updateDashFeed(games) {
+    const scrollEl = document.getElementById('dash-feed-scroll');
+    const countEl = document.getElementById('dash-feed-count');
+    if (!scrollEl) return;
+    if (countEl) countEl.textContent = games?.length || '0';
+    if (!games || !games.length) {
+        scrollEl.innerHTML = '<div class="dash-feed-empty">Brak ostatnich gier. Zagraj pierwszą!</div>';
+        return;
+    }
+    let html = '';
+    games.forEach(g => {
+        const timeStr = timeAgo(g.timestamp, true);
+        const isHouse = g.winner === 'House' || g.loser === 'House';
+        html += `<div class="dash-feed-item">
+            <span class="dash-feed-time">${timeStr}</span>
+            <span class="dash-feed-icon">${isHouse ? '⚡' : '⚔️'}</span>
+            <div class="dash-feed-players">
+                <span class="dash-feed-winner">${escapeHtml(g.winner || '?')}</span>
+                <span class="dash-feed-vs">vs</span>
+                <span class="dash-feed-loser">${escapeHtml(g.loser || '?')}</span>
+            </div>
+            <span class="dash-feed-amount">🪙 ${fmt(g.amount || 0)}</span>
+        </div>`;
+    });
+    scrollEl.innerHTML = html;
+    scrollEl.scrollTop = 0;
+}
+
 // ── TABS ──────────────────────────────────────────────────────
 window.showTab = function(tab) {
     currentSidebarTab = tab;
@@ -465,6 +581,7 @@ window.showTab = function(tab) {
     }
 
     // Load data for specific tabs
+    if (tab === 'dashboard') refreshDashboard();
     if (tab === 'coinflip' && currentSubtab === 'history') socket.emit('getHistory');
     if (tab === 'coinflip' && currentSubtab === 'deposit') refreshDepositTab();
     if (tab === 'leaderboard') fetchLeaderboard();
@@ -1719,11 +1836,6 @@ socket.on('chatHistory', (messages) => {
     }
 });
 
-socket.on('onlineCount', (count) => {
-    const el = document.getElementById('chat-online');
-    if (el) el.textContent = count + ' online';
-});
-
 socket.on('newChatMessage', (msg) => {
     chatMessages.push(msg);
     if (chatMessages.length > 100) chatMessages.shift();
@@ -1810,6 +1922,11 @@ function renderRecentGames(games) {
 // Socket listener for real-time updates
 socket.on('recentGamesUpdated', (games) => {
     renderRecentGames(games || []);
+    // Only update dashboard feed if dashboard tab is visible
+    const dashTab = document.getElementById('tab-dashboard');
+    if (dashTab && dashTab.style.display !== 'none') {
+        updateDashFeed(games || []);
+    }
 });
 
 // ── SYSTEM MESSAGE TOAST ────────────────────────────────────────
