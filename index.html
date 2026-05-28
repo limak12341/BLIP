@@ -110,6 +110,10 @@
           <span class="st-icon">🏆</span>
           <span class="st-label">Leaderboard</span>
         </button>
+        <button class="sidebar-link" onclick="openProvablyFair()">
+          <span class="st-icon">🔐</span>
+          <span class="st-label">Provably Fair</span>
+        </button>
       </nav>
 
       <div class="sidebar-bottom">
@@ -236,6 +240,16 @@
             <div class="lobby-actions">
               <button class="btn-history" onclick="showTab('coinflip');showCoinflipSubtab('history')">📜 Historia</button>
               <button class="btn-create" id="btn-create" onclick="openCreateModal()">✦ Stwórz grę</button>
+            </div>
+          </div>
+          <!-- LIVE FEED: Ostatnie wyniki -->
+          <div class="live-feed" id="live-feed">
+            <div class="live-feed-header">
+              <span class="live-feed-title">📡 Live Feed</span>
+              <span class="live-feed-count" id="live-feed-count">0 ostatnich</span>
+            </div>
+            <div class="live-feed-scroll" id="live-feed-scroll">
+              <div class="live-feed-empty">Brak ostatnich gier. Zagraj pierwszą!</div>
             </div>
           </div>
           <div id="games-list" class="games-list">
@@ -672,6 +686,99 @@
         <div class="promo-history-title">Wykorzystane kody</div>
         <div id="promo-history-list" class="promo-history-list">
           <div class="promo-empty">Brak wykorzystanych kodów</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: PROVABLY FAIR -->
+<div id="pf-modal" class="modal-overlay">
+  <div class="modal modal-pf">
+    <div class="modal-header">
+      <span class="modal-title">🔐 Provably Fair</span>
+      <button class="modal-close" onclick="closeProvablyFair()">✕</button>
+    </div>
+    <div class="pf-content">
+      <div class="pf-intro">
+        <div class="pf-intro-icon">🎲</div>
+        <p class="pf-intro-text">System <strong>Provably Fair</strong> pozwala zweryfikować, że wyniki gier są uczciwe i nie zostały zmanipulowane przez serwer.</p>
+      </div>
+
+      <!-- Status seedów -->
+      <div class="pf-section">
+        <div class="pf-section-title">📊 Status seedów</div>
+        <div id="pf-status" class="pf-status">
+          <div class="pf-loading">Ładowanie...</div>
+        </div>
+      </div>
+
+      <!-- Client Seed -->
+      <div class="pf-section">
+        <div class="pf-section-title">🎯 Client Seed (Twój)</div>
+        <p class="pf-desc">Możesz zmienić swój client seed przed grą. Po zmianie nonce jest resetowany.</p>
+        <div class="pf-client-seed-row">
+          <input class="pf-input" id="pf-client-seed-input" placeholder="Wpisz nowy client seed..." maxlength="64" autocomplete="off">
+          <button class="pf-btn pf-btn-primary" onclick="changeClientSeed()">Zmień</button>
+        </div>
+        <div id="pf-client-seed-status" class="pf-client-status"></div>
+      </div>
+
+      <!-- Rotacja Server Seed -->
+      <div class="pf-section">
+        <div class="pf-section-title">🔄 Server Seed</div>
+        <p class="pf-desc">Przed rozpoczęciem gry możesz wymusić rotację server seeda, aby mieć pewność, że jest nowy.</p>
+        <button class="pf-btn pf-btn-secondary" onclick="rotateServerSeed()">⟳ Wymuś rotację</button>
+        <div id="pf-rotate-status" class="pf-client-status"></div>
+      </div>
+
+      <!-- Weryfikacja -->
+      <div class="pf-section">
+        <div class="pf-section-title">🔍 Weryfikacja wyniku</div>
+        <p class="pf-desc">Po zakończeniu gry, server seed jest ujawniany. Wpisz dane poniżej, aby zweryfikować wynik.</p>
+        <div class="pf-verify-form">
+          <label class="pf-verify-label">Server Seed (ujawniony po grze)</label>
+          <input class="pf-input" id="pf-verify-server-seed" placeholder="Server seed..." autocomplete="off">
+          
+          <label class="pf-verify-label">Client Seed</label>
+          <input class="pf-input" id="pf-verify-client-seed" placeholder="Client seed..." autocomplete="off">
+          
+          <label class="pf-verify-label">Nonce</label>
+          <input class="pf-input" id="pf-verify-nonce" type="number" placeholder="0" autocomplete="off">
+          
+          <label class="pf-verify-label">Oczekiwany wynik (opcjonalnie)</label>
+          <select class="pf-select" id="pf-verify-result">
+            <option value="">— Nie wiem / tylko hash —</option>
+            <option value="heads">ORZEŁ (heads)</option>
+            <option value="tails">RESZKA (tails)</option>
+          </select>
+          
+          <button class="pf-btn pf-btn-primary" onclick="verifyProvablyFair()" style="margin-top:8px">🔍 Zweryfikuj</button>
+          <button class="pf-btn pf-btn-secondary" onclick="autoVerifyLastGame()" style="margin-top:6px">⚡ Auto-weryfikacja ostatniej gry</button>
+        </div>
+        <div id="pf-verify-result" class="pf-verify-result"></div>
+      </div>
+
+      <!-- Jak to działa -->
+      <div class="pf-section">
+        <div class="pf-section-title">📖 Jak działa Provably Fair?</div>
+        <div class="pf-how-it-works">
+          <div class="pf-step">
+            <span class="pf-step-num">1</span>
+            <span class="pf-step-text">Serwer generuje <strong>Server Seed</strong> — pokazuje tylko jego <strong>hash</strong> (SHA-256), nigdy samego seeda.</span>
+          </div>
+          <div class="pf-step">
+            <span class="pf-step-num">2</span>
+            <span class="pf-step-text">Ty ustawiasz swój <strong>Client Seed</strong> — możesz go zmienić przed grą.</span>
+          </div>
+          <div class="pf-step">
+            <span class="pf-step-num">3</span>
+            <span class="pf-step-text">Wynik gry = <strong>HMAC-SHA256(ServerSeed, ClientSeed + Nonce)</strong>. Nonce rośnie po każdej grze.</span>
+          </div>
+          <div class="pf-step">
+            <span class="pf-step-num">4</span>
+            <span class="pf-step-text">Po grze serwer ujawnia <strong>Server Seed</strong>. Możesz zweryfikować, że hash się zgadza, a wynik został wygenerowany uczciwie.</span>
+          </div>
         </div>
       </div>
     </div>

@@ -1,1830 +1,646 @@
-const express    = require('express');
-const session    = require('express-session');
-const axios      = require('axios');
-const http       = require('http');
-const path       = require('path');
-const os         = require('os');
-const Datastore  = require('@seald-io/nedb');
-const { Server } = require('socket.io');
+const express = require('express');
+const http = require('http');
+const socketIo = require('socket.io');
+const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
 
-// ── KONFIGURACJA ─────────────────────────────────────────────
-const ROBLOX_CLIENT_ID     = process.env.ROBLOX_CLIENT_ID || 'TWÓJ_CLIENT_ID';
+const db = require('./modules/db');
+const pf = require('./modules/provablyFair');
+const games = require('./modules/games');
 
-// Gemy — itemy jak huge/titanic, z nominałami
-const GEMS = [
-  { name: 'Gem 💎 1M',   value: 1_000_000 },
-  { name: 'Gem 💎 10M',  value: 10_000_000 },
-  { name: 'Gem 💎 25M',  value: 25_000_000 },
-  { name: 'Gem 💎 50M',  value: 50_000_000 },
-  { name: 'Gem 💎 100M', value: 100_000_000 },
-  { name: 'Gem 💎 500M', value: 500_000_000 },
-];
-
-// Merge recipes: [inputName, inputQty] -> [outputName, outputQty]
-const GEM_MERGE_RECIPES = [
-  { in: 'Gem 💎 1M',   inQty: 10, out: 'Gem 💎 10M',  outQty: 1 },
-  { in: 'Gem 💎 10M',  inQty: 5,  out: 'Gem 💎 25M',  outQty: 2 },
-  { in: 'Gem 💎 25M',  inQty: 2,  out: 'Gem 💎 50M',  outQty: 1 },
-  { in: 'Gem 💎 50M',  inQty: 2,  out: 'Gem 💎 100M', outQty: 1 },
-  { in: 'Gem 💎 100M', inQty: 5,  out: 'Gem 💎 500M', outQty: 1 },
-];
-const ROBLOX_CLIENT_SECRET = process.env.ROBLOX_CLIENT_SECRET || 'TWÓJ_CLIENT_SECRET';
-const REDIRECT_URI         = process.env.REDIRECT_URI || 'http://localhost:5000/auth/callback';
-const PORT                 = process.env.PORT || 5000;
-const SESSION_SECRET       = process.env.SESSION_SECRET || 'zmien-na-losowy-ciag-znakow-xyz987';
-const IS_PRODUCTION        = process.env.NODE_ENV === 'production';
-
-// Admin (do panelu /admin) – ustaw w env na Render/GitHub itp.
-// Przykład: ADMIN_TOKEN=jakis-losowy-ciag-32-znaki
-const ADMIN_TOKEN          = process.env.ADMIN_TOKEN || 'zmien-mnie-admin-token';
-// Bot secret — ten sam co w bot.js / .env
-const BOT_SECRET           = process.env.BOT_SECRET  || 'zmien-mnie-bot-secret-123';
-
-// ── INICJALIZACJA ─────────────────────────────────────────────
-const app    = express();
-if (IS_PRODUCTION) app.set('trust proxy', 1);
+const app = express();
 const server = http.createServer(app);
-const io     = new Server(server);
+const io = socketIo(server);
 
-// Bazy: gracze, historia, oczekujące gry w lobby
-const db      = new Datastore({ filename: path.join(__dirname, 'baza_graczy.db'),  autoload: true });
-const gamesDb = new Datastore({ filename: path.join(__dirname, 'baza_historii.db'), autoload: true });
-const lobbyDb = new Datastore({ filename: path.join(__dirname, 'baza_lobby.db'),   autoload: true });
+const PORT = process.env.PORT || 10000;
+const DATA_DIR = path.join(__dirname, 'data');
 
-// Depozyty / wypłaty / inventarz na stronie
-const inventoryDb = new Datastore({ filename: path.join(__dirname, 'baza_inventory.db'), autoload: true });
-const requestsDb  = new Datastore({ filename: path.join(__dirname, 'baza_requests.db'),  autoload: true });
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
-// Chat
-const chatDb = new Datastore({ filename: path.join(__dirname, 'baza_chat.db'), autoload: true });
-chatDb.ensureIndex({ fieldName: 'timestamp', expireAfterSeconds: 86400 * 7 }); // auto-usuwanie po 7 dniach
+// ── Provably Fair Routes ──────────────────────────────────────
+pf.setupRoutes(app);
 
-// Admin logs + warnings
-const logsDb = new Datastore({ filename: path.join(__dirname, 'baza_logow.db'), autoload: true });
-const warningsDb = new Datastore({ filename: path.join(__dirname, 'baza_ostrzezen.db'), autoload: true });
-
-// Indeksy
-gamesDb.ensureIndex({ fieldName: 'players', sparse: true });
-requestsDb.ensureIndex({ fieldName: 'userId', sparse: true });
-requestsDb.ensureIndex({ fieldName: 'status', sparse: true });
-requestsDb.ensureIndex({ fieldName: 'type', sparse: true });
-
-const activeGames = new Map();
-const connectedUsers = new Set();
-let gameCounter = 1;
-const tempCodes = new Map();
-
-function normalizeUsername(raw) {
-    return String(raw || '').trim();
-}
-
-function fmt(n) {
-    const v = Number(n);
-    if (v < 1000) return String(v);
-    if (v < 1_000_000) return (v / 1000).toFixed(v < 10_000 ? 1 : 0) + 'K';
-    if (v < 1_000_000_000) return (v / 1_000_000).toFixed(v < 10_000_000 ? 1 : 0) + 'M';
-    return (v / 1_000_000_000).toFixed(v < 10_000_000_000 ? 1 : 0) + 'B';
-}
-
-function newId(prefix) {
-    return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function guessCategory(name) {
-    if (!name) return 'Unknown';
-    if (name.startsWith('Gem 💎')) return 'Gem';
-    if (name.includes('Titanic')) return 'Titanic';
-    if (name.includes('Gargantuan')) return 'Gargantuan';
-    if (name.includes('Huge')) return 'Huge';
-    return 'Unknown';
-}
-
-function sanitizeItems(items) {
-    if (!Array.isArray(items)) return [];
-    return items
-        .map(it => ({
-            name: normalizeUsername(it?.name).slice(0, 80),
-            qty: Math.max(1, Math.min(9999, parseInt(it?.qty || 1, 10) || 1)),
-            rap: Math.max(0, parseInt(it?.rap) || 0),
-            category: it?.category || guessCategory(it?.name)
-        }))
-        .filter(it => it.name.length > 0);
-}
-
-async function fetchRobloxUserByUsername(username) {
-    const lookup = await axios.post(
-        'https://users.roblox.com/v1/usernames/users',
-        { usernames: [username], excludeBannedUsers: true }
-    );
-    const entry = lookup.data?.data?.[0];
-    if (!entry || entry.requestedUsername.toLowerCase() !== username.toLowerCase()) {
-        return null;
-    }
-    return entry;
-}
-
-// ── SESSION MIDDLEWARE ────────────────────────────────────────
-const sessionMiddleware = session({
-    secret: SESSION_SECRET,
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-        secure: IS_PRODUCTION,
-        sameSite: 'lax'
-    }
-});
-app.use(sessionMiddleware);
+// ── Express ────────────────────────────────────────────────────
+app.use(express.static(path.join(__dirname, '.')));
 app.use(express.json());
-app.use(express.static(path.join(__dirname)));
-io.engine.use(sessionMiddleware);
 
-function requireLogin(req, res, next) {
-    if (!req.session?.robloxId) return res.status(401).json({ message: 'Nie jesteś zalogowany.' });
-    next();
-}
+// ── Socket.IO ──────────────────────────────────────────────────
+const chatHistory = db.loadChat();
+const MAX_CHAT_HISTORY = 200;
 
-function requireAdmin(req, res, next) {
-    if (!req.session?.isAdmin) return res.status(401).json({ message: 'Brak uprawnień admin.' });
-    next();
-}
-
-function requireBot(req, res, next) {
-    const secret = req.headers['x-bot-secret'];
-    if (!secret || secret !== BOT_SECRET) return res.status(401).json({ message: 'Brak dostępu bota.' });
-    next();
-}
-
-// ── INVENTARZ (na stronie) ────────────────────────────────────
-function getInventory(userId, callback) {
-    inventoryDb.findOne({ _id: userId }, (err, doc) => {
-        if (doc?.items) return callback(doc.items);
-        const fresh = { _id: userId, items: [] };
-        inventoryDb.insert(fresh, () => callback([]));
-    });
-}
-
-function addToInventory(userId, items, callback) {
-    getInventory(userId, (cur) => {
-        const map = new Map();
-        cur.forEach(it => map.set(it.name.toLowerCase(), { name: it.name, qty: it.qty }));
-        items.forEach(it => {
-            const key = it.name.toLowerCase();
-            const prev = map.get(key);
-            if (prev) prev.qty += it.qty;
-            else map.set(key, { name: it.name, qty: it.qty });
-        });
-        const merged = [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
-        inventoryDb.update({ _id: userId }, { $set: { items: merged } }, { upsert: true }, () => callback(merged));
-    });
-}
-
-function removeFromInventory(userId, items, callback) {
-    getInventory(userId, (cur) => {
-        const map = new Map();
-        cur.forEach(it => map.set(it.name.toLowerCase(), { name: it.name, qty: it.qty }));
-        // walidacja: czy wystarczy
-        for (const it of items) {
-            const key = it.name.toLowerCase();
-            const prev = map.get(key);
-            if (!prev || prev.qty < it.qty) return callback({ ok: false, message: `Brak itemu lub za mało sztuk: ${it.name}` });
-        }
-        // odejmij
-        items.forEach(it => {
-            const key = it.name.toLowerCase();
-            const prev = map.get(key);
-            prev.qty -= it.qty;
-            if (prev.qty <= 0) map.delete(key);
-        });
-        const merged = [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
-        inventoryDb.update({ _id: userId }, { $set: { items: merged } }, { upsert: true }, () => callback({ ok: true, items: merged }));
-    });
-}
-
-// ── FUNKCJE BAZOWE ───────────────────────────────────────────
-function getOrCreateUser(robloxId, username, avatarUrl, callback) {
-    db.findOne({ _id: robloxId }, (err, doc) => {
-        if (doc) {
-            db.update({ _id: robloxId }, { $set: { username, avatarUrl } }, {}, () => callback({ ...doc, username, avatarUrl }));
-        } else {
-            const newUser = { _id: robloxId, username, avatarUrl, createdAt: Date.now() };
-            db.insert(newUser, (err2, inserted) => callback(inserted));
-        }
-    });
-}
-
-
-function saveLobbyGame(game) {
-    lobbyDb.update(
-        { _id: game.id },
-        {
-            _id: game.id,
-            id: game.id,
-            items: game.items,
-            totalValue: game.totalValue,
-            status: game.status,
-            createdAt: game.createdAt,
-            creator: game.creator
-        },
-        { upsert: true },
-        (err) => { if (err) console.error('saveLobbyGame:', err); }
-    );
-}
-
-function removeLobbyGame(gameId) {
-    lobbyDb.remove({ _id: gameId }, {}, (err) => {
-        if (err) console.error('removeLobbyGame:', err);
-    });
-}
-
-function loadLobbyGames(callback) {
-    lobbyDb.find({ status: 'waiting' }, (err, docs) => {
-        if (err || !docs.length) return callback();
-        docs.forEach(doc => {
-            activeGames.set(doc.id, {
-                id: doc.id,
-                items: doc.items,
-                totalValue: doc.totalValue,
-                status: doc.status,
-                createdAt: doc.createdAt,
-                creator: { ...doc.creator, socketId: null },
-                joiner: null
-            });
-            const num = parseInt(String(doc.id).replace(/\D/g, ''), 10);
-            if (num >= gameCounter) gameCounter = num + 1;
-        });
-        callback(docs.length);
-    });
-}
-
-function saveGameToHistory(game, winningSide) {
-    const creatorWon = game.creator.side === winningSide;
-    const record = {
-        gameId: game.id,
-        totalValue: game.totalValue || 0,
-        joinValue: game.joinValue || 0,
-        winningSide,
-        timestamp: Date.now(),
-        players: [game.creator.robloxId, game.joiner.robloxId],
-        creator: { robloxId: game.creator.robloxId, username: game.creator.username, avatarUrl: game.creator.avatarUrl, side: game.creator.side, won: creatorWon },
-        joiner: { robloxId: game.joiner.robloxId, username: game.joiner.username, avatarUrl: game.joiner.avatarUrl, side: game.joiner.side, won: !creatorWon },
-        creatorItems: game.items,
-        joinerItems: game.joinerItems
-    };
-    gamesDb.insert(record, (err) => { if (err) console.error('Błąd zapisu historii:', err); });
-}
-
-
-function getHistory(robloxId, callback) {
-    gamesDb.find({ players: robloxId }).sort({ timestamp: -1 }).limit(30).exec((err, docs) => callback(err ? [] : docs));
-}
-
-function broadcastGames() {
-    const list = [...activeGames.values()].map(g => ({
-        id: g.id,
-        items: g.items,
-        totalValue: g.totalValue || 0,
-        wildMode: g.wildMode || false,
-        hugeBet: g.hugeBet || false,
-        status: g.status,
-        createdAt: g.createdAt,
-        creator: { robloxId: g.creator.robloxId, username: g.creator.username, avatarUrl: g.creator.avatarUrl, side: g.creator.side }
-    }));
-    io.emit('gamesList', list);
-}
-
-// ── WERYFIKACJA BIO ───────────────────────────────────────────
-app.post('/verify-start', (req, res) => {
-    const username = normalizeUsername(req.body.username);
-    if (!username) return res.status(400).json({ message: 'Podaj nick!' });
-
-    const code = 'blox' + Math.random().toString(36).substring(2, 6).toUpperCase();
-    tempCodes.set(username.toLowerCase(), { code, displayName: username });
-    res.json({ code });
-});
-
-app.post('/verify-check', async (req, res) => {
-    const username = normalizeUsername(req.body.username);
-    const pending = tempCodes.get(username.toLowerCase());
-
-    if (!pending) {
-        return res.status(400).json({ message: 'Najpierw wygeneruj kod!' });
-    }
-
-    try {
-        const userEntry = await fetchRobloxUserByUsername(username);
-        if (!userEntry) {
-            return res.status(404).json({ message: 'Nie znaleziono gracza o tym nicku!' });
-        }
-
-        const userId = userEntry.id;
-        const profileRes = await axios.get(`https://users.roblox.com/v1/users/${userId}`);
-        const bio = profileRes.data.description || '';
-
-        if (!bio.includes(pending.code)) {
-            return res.json({
-                success: false,
-                message: 'Kod nie znaleziony w Bio! Upewnij się, że zapisałeś profil na Robloxie.'
-            });
-        }
-
-        const avatarRes = await axios.get(
-            `https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${userId}&size=150x150&format=Png`
-        );
-        const avatarUrl = avatarRes.data?.data?.[0]?.imageUrl || '';
-
-        const displayName = pending.displayName || userEntry.name || username;
-
-        req.session.robloxId = userId.toString();
-        req.session.username = displayName;
-        req.session.avatarUrl = avatarUrl;
-        tempCodes.delete(username.toLowerCase());
-
-        getOrCreateUser(req.session.robloxId, displayName, avatarUrl, () => {
-            res.json({ success: true });
-        });
-    } catch (e) {
-        console.error('verify-check:', e.message);
-        res.status(500).json({ message: 'Błąd serwera. Spróbuj za chwilę.' });
-    }
-});
-
-// ── OAUTH ROBLOX (opcjonalnie) ─────────────────────────────────
-app.get('/auth/roblox', (req, res) => {
-    const params = new URLSearchParams({
-        client_id: ROBLOX_CLIENT_ID,
-        redirect_uri: REDIRECT_URI,
-        response_type: 'code',
-        scope: 'openid profile',
-        state: 'bloxyflip_state'
-    });
-    res.redirect(`https://apis.roblox.com/oauth/v1/authorize?${params}`);
-});
-
-app.get('/auth/callback', async (req, res) => {
-    const { code, error } = req.query;
-    if (error || !code) return res.redirect('/?error=auth_failed');
-    try {
-        const tokenRes = await axios.post(
-            'https://apis.roblox.com/oauth/v1/token',
-            new URLSearchParams({
-                grant_type: 'authorization_code',
-                code,
-                redirect_uri: REDIRECT_URI,
-                client_id: ROBLOX_CLIENT_ID,
-                client_secret: ROBLOX_CLIENT_SECRET
-            }),
-            { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-        );
-        const userRes = await axios.get('https://apis.roblox.com/oauth/v1/userinfo', {
-            headers: { Authorization: `Bearer ${tokenRes.data.access_token}` }
-        });
-        const { sub: robloxId, name: username, picture: avatarUrl } = userRes.data;
-        req.session.robloxId = String(robloxId);
-        req.session.username = username;
-        req.session.avatarUrl = avatarUrl || '';
-        getOrCreateUser(req.session.robloxId, username, req.session.avatarUrl, () => {
-            res.redirect('/');
-        });
-    } catch (err) {
-        res.redirect('/?error=token_failed');
-    }
-});
-
-app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/'); });
-
-// ── API: INVENTARZ / DEPOZYT / WYPŁATA ─────────────────────────
-app.get('/api/inventory', requireLogin, (req, res) => {
-    getInventory(req.session.robloxId, (items) => res.json({ items }));
-});
-
-app.get('/api/requests', requireLogin, (req, res) => {
-    requestsDb.find({ userId: req.session.robloxId }).sort({ createdAt: -1 }).limit(50).exec((err, docs) => {
-        res.json({ requests: err ? [] : (docs || []) });
-    });
-});
-
-// Zgłoszenie depozytu (użytkownik deklaruje co wysłał trade'em)
-app.post('/api/deposit/request', requireLogin, (req, res) => {
-    const items = sanitizeItems(req.body.items);
-    const note = normalizeUsername(req.body.note).slice(0, 300);
-    if (!items.length) return res.status(400).json({ message: 'Dodaj przynajmniej 1 item.' });
-
-    const doc = {
-        _id: newId('dep'),
-        type: 'deposit',
-        status: 'pending',
-        userId: req.session.robloxId,
-        robloxUserId: req.session.robloxId,   // dla bota (wiadomości Roblox)
-        username: req.session.username || '',
-        items,
-        note,
-        totalValue: 0,      // wypełni bot po wycenie RAP
-        createdAt: Date.now(),
-        updatedAt: Date.now()
-    };
-    requestsDb.insert(doc, (err) => {
-        if (err) return res.status(500).json({ message: 'Błąd zapisu zgłoszenia.' });
-        res.json({ ok: true, request: doc });
-    });
-});
-
-// Zgłoszenie wypłaty (strona odejmie itemy dopiero po akceptacji admina)
-app.post('/api/withdraw/request', requireLogin, (req, res) => {
-    const items = sanitizeItems(req.body.items);
-    const note = normalizeUsername(req.body.note).slice(0, 300);
-    if (!items.length) return res.status(400).json({ message: 'Dodaj przynajmniej 1 item.' });
-
-    // waliduj, czy user ma te itemy na stronie
-    removeFromInventory(req.session.robloxId, items, (check) => {
-        if (!check.ok) return res.status(400).json({ message: check.message });
-        // cofamy zmianę (realnie odejmiemy dopiero po approve admina)
-        addToInventory(req.session.robloxId, items, () => {
-            const doc = {
-                _id: newId('wd'),
-                type: 'withdraw',
-                status: 'pending',
-                userId: req.session.robloxId,
-                username: req.session.username || '',
-                items,
-                note,
-                createdAt: Date.now(),
-                updatedAt: Date.now()
-            };
-            requestsDb.insert(doc, (err) => {
-                if (err) return res.status(500).json({ message: 'Błąd zapisu zgłoszenia.' });
-                res.json({ ok: true, request: doc });
-            });
-        });
-    });
-});
-
-// ── API: PET DATABASE (BigGames API) ────────────────────────────
-// Cache dla petów i RAP
-let _petsCache = [];
-let _petsAt = 0;
-let _rapCache = {};
-let _rapAt = 0;
-const CACHE_MS = 5 * 60_000; // 5 min
-
-async function getRap() {
-    if (Date.now() - _rapAt < CACHE_MS) return _rapCache;
-    try {
-        const res = await axios.get('https://ps99.biggamesapi.io/api/rap', { timeout: 10000 });
-        const data = res.data?.data || [];
-        _rapCache = {};
-        _rapAt = Date.now();
-        data.forEach(it => {
-            if (!it?.configData?.id) return;
-            const baseId = it.configData.id;
-            const pt = it.configData.pt;
-            const sh = it.configData.sh;
-            let suffix = '';
-            if (sh && pt === 1) suffix = ' [Shiny Golden]';
-            else if (sh && pt === 2) suffix = ' [Shiny Rainbow]';
-            else if (sh) suffix = ' [Shiny]';
-            else if (pt === 1) suffix = ' [Golden]';
-            else if (pt === 2) suffix = ' [Rainbow]';
-            _rapCache[baseId + suffix] = it.value || 0;
-        });
-        console.log(`[RAP] Pobrano ${Object.keys(_rapCache).length} wycen z BigGames`);
-    } catch (e) {
-        console.warn('[RAP] Błąd:', e.message);
-    }
-    return _rapCache;
-}
-
-async function getPetsCollection() {
-    if (Date.now() - _petsAt < CACHE_MS && _petsCache.length) return _petsCache;
-    try {
-        const res = await axios.get('https://ps99.biggamesapi.io/api/collection/Pets', { timeout: 15000 });
-        const data = res.data?.data || [];
-        _petsCache = data;
-        _petsAt = Date.now();
-        console.log(`[PETS] Pobrano ${data.length} petów z BigGames`);
-    } catch (e) {
-        console.warn('[PETS] Błąd:', e.message);
-    }
-    return _petsCache;
-}
-
-function rapLookup(rap, name) {
-    if (!name) return 0;
-    const id = name.replace(/\s+/g, '');
-    return rap[id] || rap[name] || 0;
-}
-
-// Endpoint: wyszukiwarka petów (dla frontendu)
-app.get('/api/pets/search', async (req, res) => {
-    const q = normalizeUsername(req.query.q).toLowerCase();
-    const category = normalizeUsername(req.query.category).toLowerCase();
-    const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 20));
-    
-    const [pets, rap] = await Promise.all([getPetsCollection(), getRap()]);
-    
-    let results = [];
-    const seen = new Set();
-    
-    // Dodaj gemy zawsze do wyników
-    GEMS.forEach(gem => {
-        const gemName = gem.name;
-        const lower = gemName.toLowerCase();
-        if (q && !lower.includes(q)) return;
-        if (category && category !== 'gem') return;
-        const key = lower;
-        if (seen.has(key)) return;
-        seen.add(key);
-        results.push({
-            name: gemName,
-            category: 'Gem',
-            rap: gem.value,
-            huge: false,
-            thumbnail: '',
-        });
-    });
-    
-    for (const pet of pets) {
-        const name = pet?.configData?.name || pet?.configName || '';
-        if (!name) continue;
-        
-        // Filtruj po kategorii
-        if (category && (pet.category || '').toLowerCase() !== category) continue;
-        
-        // Filtruj po nazwie
-        const baseNameLower = name.toLowerCase();
-        if (q && !baseNameLower.includes(q)) continue;
-        
-        // Generuj wszystkie warianty (normal, golden, rainbow, shiny, shiny golden, shiny rainbow)
-        // Używamy bezpośrednio nazwy (ze spacjami) — RAP cache używa ID z BigGames które też ma spacje
-        const baseId = name;
-        const variantSuffixes = ['', ' [Golden]', ' [Rainbow]', ' [Shiny]', ' [Shiny Golden]', ' [Shiny Rainbow]'];
-        
-        // Najpierw sprawdź czy któryś wariant ma RAP > 0
-        let hasValue = false;
-        for (const suffix of variantSuffixes) {
-            const r = rap[baseId + suffix] || 0;
-            if (r > 0) { hasValue = true; break; }
-        }
-        if (!hasValue) continue; // pomiń pety bez wartości rynkowej
-        
-        // Dodaj każdy wariant z wartością RAP
-        for (const suffix of variantSuffixes) {
-            const rapValue = rap[baseId + suffix] || 0;
-            if (rapValue <= 0) continue;
-            
-            const variantName = name + suffix;
-            const key = variantName.toLowerCase();
-            if (seen.has(key)) continue;
-            seen.add(key);
-            
-            results.push({
-                name: variantName,
-                category: pet.category || 'Unknown',
-                rap: rapValue,
-                huge: !!pet.configData?.huge,
-                thumbnail: pet.configData?.thumbnail || '',
-            });
-        }
-    }
-    
-    // Sortuj: najpierw ogony, potem gemy, potem po RAP malejąco
-    results.sort((a, b) => {
-        const order = { Titanic: 0, Gargantuan: 1, Huge: 2, Gem: 3 };
-        const aCat = order[a.category] !== undefined ? order[a.category] : 4;
-        const bCat = order[b.category] !== undefined ? order[b.category] : 4;
-        if (aCat !== bCat) return aCat - bCat;
-        return (b.rap || 0) - (a.rap || 0);
-    });
-    
-    const total = results.length;
-    const start = (page - 1) * limit;
-    results = results.slice(start, start + limit);
-    
-    res.json({
-        results,
-        total,
-        page,
-        pages: Math.ceil(total / limit),
-    });
-});
-
-// Endpoint: kategorie do filtrowania
-app.get('/api/pets/categories', async (req, res) => {
-    const pets = await getPetsCollection();
-    const cats = new Set(pets.map(p => p.category).filter(Boolean));
-    cats.add('Gem');
-    res.json({ categories: [...cats].sort() });
-});
-
-// Endpoint dla admina/frontu — wycena pojedynczego itemu
-app.get('/api/item-value', async (req, res) => {
-    const name = normalizeUsername(req.query.name);
-    if (!name) return res.status(400).json({ message: 'Podaj nazwę itemu.' });
-    const rap = await getRap();
-    const value = rapLookup(rap, name);
-    res.json({ name, value, source: 'BigGames RAP' });
-});
-
-// ── API: BOT ──────────────────────────────────────────────────
-// Bot pobiera pending depozyty do wyceny
-app.get('/api/bot/pending-deposits', requireBot, (req, res) => {
-    requestsDb.find({ type: 'deposit', status: 'pending' })
-        .sort({ createdAt: 1 })
-        .limit(50)
-        .exec((err, docs) => {
-            res.json({ requests: err ? [] : (docs || []) });
-        });
-});
-
-// Bot aktualizuje request (dodaje wycenę RAP lub odrzuca)
-app.post('/api/bot/update-deposit', requireBot, (req, res) => {
-    const id         = normalizeUsername(req.body.requestId);
-    const status     = normalizeUsername(req.body.status);    // 'valued' | 'rejected'
-    const adminNote  = normalizeUsername(req.body.adminNote || '').slice(0, 500);
-    const totalValue = parseInt(req.body.totalValue) || 0;
-
-    if (!id) return res.status(400).json({ message: 'Brak requestId.' });
-    if (!['valued', 'rejected'].includes(status)) return res.status(400).json({ message: 'Zły status.' });
-
-    requestsDb.findOne({ _id: id }, (err, doc) => {
-        if (!doc) return res.status(404).json({ message: 'Nie znaleziono.' });
-        if (!['pending'].includes(doc.status)) return res.json({ ok: true, skipped: true });
-
-        const update = { status, adminNote, totalValue, updatedAt: Date.now() };
-
-        if (status === 'rejected') {
-            requestsDb.update({ _id: id }, { $set: update }, {}, () => res.json({ ok: true }));
-        } else {
-            // 'valued' — czeka na admina, zapisz wycenę
-            requestsDb.update({ _id: id }, { $set: update }, {}, () => res.json({ ok: true }));
-        }
-    });
-});
-
-// Endpoint: inventarz z RAP (dla frontendu coinflip)
-app.get('/api/inventory/with-rap', requireLogin, async (req, res) => {
-    try {
-        const rapRes = await axios.get('https://ps99.biggamesapi.io/api/rap', { timeout: 8000 });
-        const rapData = rapRes.data?.data || [];
-        const rapMap = {};
-        rapData.forEach(it => {
-            if (!it?.configData?.id) return;
-            const baseId = it.configData.id;
-            const pt = it.configData.pt;
-            const sh = it.configData.sh;
-            let suffix = '';
-            if (sh && pt === 1) suffix = ' [Shiny Golden]';
-            else if (sh && pt === 2) suffix = ' [Shiny Rainbow]';
-            else if (sh) suffix = ' [Shiny]';
-            else if (pt === 1) suffix = ' [Golden]';
-            else if (pt === 2) suffix = ' [Rainbow]';
-            rapMap[baseId + suffix] = it.value || 0;
-        });
-        // Dodaj gemy do rapMap
-        GEMS.forEach(g => { rapMap[g.name] = g.value; });
-        getInventory(req.session.robloxId, (items) => {
-            const enriched = items.map(it => {
-                // Proste wyszukiwanie: najpierw dokładna nazwa, potem stripped
-                let rap = rapMap[it.name] || 0;
-                if (!rap) {
-                    const stripped = it.name.replace(/\s+/g, '');
-                    rap = rapMap[stripped] || 0;
-                }
-                // Dla wariantów (Golden/Rainbow/Shiny): wyciągnij suffix
-                if (!rap) {
-                    const m = it.name.match(/\s+(\[.*?])$/);
-                    if (m) {
-                        const base = it.name.slice(0, m.index).replace(/\s+/g, '');
-                        rap = rapMap[base + ' ' + m[1]] || 0;
-                    }
-                }
-                return { ...it, rap };
-            });
-            res.json({ items: enriched });
-        });
-        } catch (e) {
-            console.warn('[RAP] Error fetching:', e.message);
-            getInventory(req.session.robloxId, (items) => res.json({ items }));
-    }
-});
-
-// ── LEADERBOARD ─────────────────────────────────────────────────
-app.get('/api/leaderboard', (req, res) => {
-    gamesDb.find({}).sort({ timestamp: -1 }).exec((err, docs) => {
-        if (err) return res.json({ leaderboard: [] });
-
-        const stats = {};
-        docs.forEach(r => {
-            if (!r.creator || !r.joiner) return;
-            [r.creator, r.joiner].forEach(p => {
-                if (!p || !p.robloxId) return;
-                if (!stats[p.robloxId]) {
-                    stats[p.robloxId] = {
-                        robloxId: p.robloxId,
-                        username: p.username || 'Unknown',
-                        avatarUrl: p.avatarUrl || '',
-                        wins: 0,
-                        losses: 0,
-                        profit: 0,
-                        totalBet: 0
-                    };
-                }
-                if (p.won) {
-                    stats[p.robloxId].wins++;
-                    const opponentValue = r.creator.robloxId === p.robloxId ? (r.joinValue || 0) : (r.totalValue || 0);
-                    stats[p.robloxId].profit += opponentValue;
-                } else {
-                    stats[p.robloxId].losses++;
-                    const myValue = r.creator.robloxId === p.robloxId ? (r.totalValue || 0) : (r.joinValue || 0);
-                    stats[p.robloxId].profit -= myValue;
-                }
-                const betValue = r.creator.robloxId === p.robloxId ? (r.totalValue || 0) : (r.joinValue || 0);
-                stats[p.robloxId].totalBet += betValue;
-            });
-        });
-
-        const leaderboard = Object.values(stats)
-            .sort((a, b) => b.profit - a.profit)
-            .slice(0, 50);
-
-        res.json({ leaderboard });
-    });
-});
-
-// ── PROMO CODE ───────────────────────────────────────────────────
-app.post('/api/promo/redeem', requireLogin, (req, res) => {
-    try {
-        const { code } = req.body;
-        if (!code || !code.trim()) return res.status(400).json({ message: 'Wpisz kod promocyjny!' });
-
-        const codeStr = code.trim().toUpperCase();
-        const codesDb = new Datastore({ filename: path.join(__dirname, 'promocodes.db'), autoload: true });
-        codesDb.findOne({ code: codeStr, active: true }, (err, doc) => {
-            if (err || !doc) return res.status(400).json({ message: 'Nieprawidłowy lub wygasły kod promocyjny!' });
-            if (doc.maxUses && doc.usedCount >= doc.maxUses) return res.status(400).json({ message: 'Kod został już wykorzystany maksymalną liczbę razy!' });
-
-            db.findOne({ _id: req.session.robloxId }, (err2, user) => {
-                if (err2 || !user) return res.status(400).json({ message: 'Nie znaleziono użytkownika' });
-                const usedCodes = user.usedCodes || [];
-                if (usedCodes.includes(doc.code)) return res.status(400).json({ message: 'Już wykorzystałeś ten kod!' });
-
-                // Obsługa rewards array (nowy format) + backward compat (stary `reward` pole)
-                const rewards = doc.rewards || (doc.reward ? [{ type: 'coins', amount: doc.reward }] : []);
-                let balanceReward = 0;
-                const gemRewards = [];
-
-                for (const r of rewards) {
-                    if (r.type === 'coins') balanceReward += r.amount || 0;
-                    else if (r.type === 'gems') gemRewards.push({ name: r.name, qty: r.qty || 1 });
-                }
-
-                // Aplikuj nagrodę 🪙
-                if (balanceReward > 0) {
-                    const newBalance = (user.balance || 0) + balanceReward;
-                    db.update({ _id: req.session.robloxId }, { $set: { balance: newBalance } }, {}, () => {});
-                }
-
-                // Aplikuj nagrodę 💎
-                if (gemRewards.length > 0) {
-                    addToInventory(req.session.robloxId, gemRewards, () => {});
-                }
-
-                // Oznacz kod jako użyty
-                db.update({ _id: req.session.robloxId }, { $push: { usedCodes: doc.code } }, {}, (err3) => {
-                    if (err3) return res.status(500).json({ message: 'Błąd zapisu' });
-                    codesDb.update({ _id: doc._id }, { $inc: { usedCount: 1 } }, {}, () => {});
-
-                    let message = '🎉 Otrzymałeś:';
-                    if (balanceReward > 0) message += ` 🪙 ${fmt(balanceReward)}`;
-                    if (gemRewards.length > 0) {
-                        for (const g of gemRewards) {
-                            message += ` ${g.qty}x ${g.name}`;
-                        }
-                    }
-                    res.json({ success: true, rewards, message });
-                });
-            });
-        });
-    } catch (e) {
-        res.status(500).json({ message: 'Błąd serwera' });
-    }
-});
-
-// ── ADMIN: PROMO CODE MANAGEMENT ───────────────────────────────
-app.get('/api/admin/promo-codes', requireAdmin, (req, res) => {
-    const codesDb = new Datastore({ filename: path.join(__dirname, 'promocodes.db'), autoload: true });
-    const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
-    const skip = (page - 1) * limit;
-
-    codesDb.count({}, (err, total) => {
-        if (err) return res.json({ codes: [], total: 0, page: 1, pages: 0, limit });
-        codesDb.find({}).sort({ createdAt: -1 }).skip(skip).limit(limit).exec((err, docs) => {
-            res.json({
-                codes: docs || [],
-                total,
-                page,
-                pages: Math.ceil(total / limit),
-                limit
-            });
-        });
-    });
-});
-
-app.post('/api/admin/promo-codes', requireAdmin, (req, res) => {
-    const { code, rewards, maxUses } = req.body;
-    if (!code || !code.trim()) return res.status(400).json({ message: 'Podaj kod promocyjny!' });
-    if (!rewards || !Array.isArray(rewards) || !rewards.length) return res.status(400).json({ message: 'Dodaj przynajmniej 1 nagrodę.' });
-
-    // Walidacja nagród
-    for (const r of rewards) {
-        if (r.type === 'coins' && (!r.amount || r.amount < 1)) return res.status(400).json({ message: 'Kwota nagrody (🪙) musi być większa niż 0.' });
-        if (r.type === 'gems') {
-            if (!r.name) return res.status(400).json({ message: 'Podaj nazwę gema.' });
-            const valid = GEMS.find(g => g.name === r.name);
-            if (!valid) return res.status(400).json({ message: `Nieprawidłowy gem: ${r.name}. Dostępne: ${GEMS.map(g => g.name).join(', ')}` });
-            if (!r.qty || r.qty < 1) return res.status(400).json({ message: 'Ilość gemów musi być większa niż 0.' });
-        }
-    }
-
-    const codeStr = code.trim().toUpperCase();
-    const codesDb = new Datastore({ filename: path.join(__dirname, 'promocodes.db'), autoload: true });
-
-    codesDb.findOne({ code: codeStr }, (err, existing) => {
-        if (err) return res.status(500).json({ message: 'Błąd bazy.' });
-        if (existing) return res.status(400).json({ message: 'Kod o tej nazwie już istnieje!' });
-
-        const doc = {
-            code: codeStr,
-            active: true,
-            rewards,
-            maxUses: Math.max(0, parseInt(maxUses) || 0),
-            usedCount: 0,
-            createdAt: Date.now(),
-            createdBy: req.session.username || 'Admin'
-        };
-
-        codesDb.insert(doc, (err) => {
-            if (err) return res.status(500).json({ message: 'Błąd zapisu kodu.' });
-            addLog('promo', `Utworzono kod promocyjny ${codeStr}`, req);
-            res.json({ ok: true, code: doc });
-        });
-    });
-});
-
-app.post('/api/admin/promo-codes/:id/toggle', requireAdmin, (req, res) => {
-    const id = normalizeUsername(req.params.id);
-    const codesDb = new Datastore({ filename: path.join(__dirname, 'promocodes.db'), autoload: true });
-
-    codesDb.findOne({ _id: id }, (err, doc) => {
-        if (err || !doc) return res.status(404).json({ message: 'Nie znaleziono kodu.' });
-        const newActive = !doc.active;
-        codesDb.update({ _id: id }, { $set: { active: newActive } }, {}, (err) => {
-            if (err) return res.status(500).json({ message: 'Błąd zapisu.' });
-            addLog('promo', `${newActive ? 'Aktywowano' : 'Dezaktywowano'} kod ${doc.code}`, req);
-            res.json({ ok: true, active: newActive });
-        });
-    });
-});
-
-app.post('/api/admin/promo-codes/:id/delete', requireAdmin, (req, res) => {
-    const id = normalizeUsername(req.params.id);
-    const codesDb = new Datastore({ filename: path.join(__dirname, 'promocodes.db'), autoload: true });
-
-    codesDb.findOne({ _id: id }, (err, doc) => {
-        if (err || !doc) return res.status(404).json({ message: 'Nie znaleziono kodu.' });
-        codesDb.remove({ _id: id }, {}, (err) => {
-            if (err) return res.status(500).json({ message: 'Błąd usuwania.' });
-            addLog('promo', `Usunięto kod ${doc.code}`, req);
-            res.json({ ok: true });
-        });
-    });
-});
-
-// ── GEMY: MERGE ───────────────────────────────────────────────
-app.post('/api/gems/merge', requireLogin, (req, res) => {
-    const recipeIdx = parseInt(req.body.recipe) || -1;
-    if (recipeIdx < 0 || recipeIdx >= GEM_MERGE_RECIPES.length) {
-        return res.status(400).json({ message: 'Nieprawidłowy przepis merge.' });
-    }
-    const recipe = GEM_MERGE_RECIPES[recipeIdx];
-    
-    getInventory(req.session.robloxId, (items) => {
-        const inputItem = items.find(it => it.name === recipe.in);
-        if (!inputItem || inputItem.qty < recipe.inQty) {
-            return res.status(400).json({ message: `Potrzebujesz ${recipe.inQty}x ${recipe.in}, masz tylko ${inputItem?.qty || 0}.` });
-        }
-        
-        // Odejmij input
-        removeFromInventory(req.session.robloxId, [{ name: recipe.in, qty: recipe.inQty }], (removeResult) => {
-            if (!removeResult.ok) return res.status(400).json({ message: removeResult.message });
-            
-            // Dodaj output
-            addToInventory(req.session.robloxId, [{ name: recipe.out, qty: recipe.outQty }], (newItems) => {
-                addLog('merge', `${req.session.username} połączył ${recipe.inQty}x ${recipe.in} → ${recipe.outQty}x ${recipe.out}`, req);
-                res.json({
-                    ok: true,
-                    message: `✨ Połączono ${recipe.inQty}x ${recipe.in} → ${recipe.outQty}x ${recipe.out}!`,
-                    items: newItems
-                });
-            });
-        });
-    });
-});
-
-// ── PROFIL: STATYSTYKI ────────────────────────────────────────
-app.get('/api/profile/stats', requireLogin, (req, res) => {
-    getHistory(req.session.robloxId, (records) => {
-        if (!records.length) {
-            return res.json({ total: 0, wins: 0, losses: 0, profit: 0, totalWagered: 0, level: 0, levelName: 'Basic', nextLevelXp: 10000 });
-        }
-        let wins = 0, losses = 0, profit = 0, totalWagered = 0;
-        records.forEach(r => {
-            const me = r.creator.robloxId === req.session.robloxId ? r.creator : r.joiner;
-            const myBet = r.creator.robloxId === req.session.robloxId ? (r.totalValue || 0) : (r.joinValue || 0);
-            totalWagered += myBet;
-            if (me.won) { wins++; profit += (r.totalValue || 0); }
-            else { losses++; profit -= (r.totalValue || 0); }
-        });
-        const LEVEL_XP = 10000;
-        const level = Math.min(99, Math.floor(totalWagered / LEVEL_XP));
-        const xpInLevel = totalWagered % LEVEL_XP;
-        const levelNames = ['Basic','Enthusiast','Wagered','Wagered+','Maxed Wagered++'];
-        let levelName = levelNames[0];
-        if (level >= 99) levelName = levelNames[4];
-        else if (level >= 51) levelName = levelNames[3];
-        else if (level >= 16) levelName = levelNames[2];
-        else if (level >= 1) levelName = levelNames[1];
-        res.json({
-            total: records.length,
-            wins,
-            losses,
-            profit,
-            totalWagered,
-            level,
-            levelName,
-            xpInLevel,
-            nextLevelXp: level >= 99 ? 0 : LEVEL_XP
-        });
-    });
-});
-
-// ── ADMIN ────────────────────────────────────────────────────
-app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'admin.html')));
-
-app.post('/admin/login', (req, res) => {
-    const token = normalizeUsername(req.body.token);
-    if (!token) return res.status(400).json({ message: 'Podaj token.' });
-    if (token !== ADMIN_TOKEN) return res.status(401).json({ message: 'Zły token.' });
-    req.session.isAdmin = true;
-    res.json({ ok: true });
-});
-
-app.post('/admin/logout', (req, res) => {
-    req.session.isAdmin = false;
-    res.json({ ok: true });
-});
-
-app.get('/api/admin/requests', requireAdmin, (req, res) => {
-    const status = normalizeUsername(req.query.status);
-    const type = normalizeUsername(req.query.type);
-    const q = {};
-    if (status) q.status = status;
-    if (type) q.type = type;
-    requestsDb.find(q).sort({ createdAt: -1 }).limit(200).exec((err, docs) => {
-        res.json({ requests: err ? [] : (docs || []) });
-    });
-});
-
-app.post('/api/admin/requests/:id/approve', requireAdmin, (req, res) => {
-    const id = normalizeUsername(req.params.id);
-    const adminNote = normalizeUsername(req.body.adminNote).slice(0, 300);
-    requestsDb.findOne({ _id: id }, (err, doc) => {
-        if (!doc) return res.status(404).json({ message: 'Nie znaleziono zgłoszenia.' });
-        if (!['pending', 'valued'].includes(doc.status)) return res.status(400).json({ message: 'To zgłoszenie nie może być już zatwierdzone.' });
-        addLog('approve', `Zatwierdzono ${doc.type} (${id}) od ${doc.username || doc.userId}`, req);
-
-        const items = sanitizeItems(doc.items);
-        if (!items.length) return res.status(400).json({ message: 'Brak itemów w zgłoszeniu.' });
-
-        if (doc.type === 'deposit') {
-            addToInventory(doc.userId, items, () => {
-                requestsDb.update(
-                    { _id: id },
-                    { $set: { status: 'approved', adminNote, updatedAt: Date.now() } },
-                    {},
-                    () => res.json({ ok: true })
-                );
-            });
-            return;
-        }
-
-        if (doc.type === 'withdraw') {
-            // przy wypłacie odejmujemy itemy dopiero teraz
-            removeFromInventory(doc.userId, items, (result) => {
-                if (!result.ok) return res.status(400).json({ message: result.message });
-                requestsDb.update(
-                    { _id: id },
-                    { $set: { status: 'sent', adminNote, updatedAt: Date.now() } },
-                    {},
-                    () => res.json({ ok: true })
-                );
-            });
-            return;
-        }
-
-        res.status(400).json({ message: 'Nieznany typ.' });
-    });
-});
-
-app.post('/api/admin/requests/:id/reject', requireAdmin, (req, res) => {
-    const id = normalizeUsername(req.params.id);
-    const adminNote = normalizeUsername(req.body.adminNote).slice(0, 300);
-    requestsDb.findOne({ _id: id }, (err, doc) => {
-        if (!doc) return res.status(404).json({ message: 'Nie znaleziono zgłoszenia.' });
-        if (!['pending', 'valued'].includes(doc.status)) return res.status(400).json({ message: 'To zgłoszenie nie może być już odrzucone.' });
-        addLog('reject', `Odrzucono ${doc.type} (${id}) od ${doc.username || doc.userId}`, req);
-
-        requestsDb.update(
-            { _id: id },
-            { $set: { status: 'rejected', adminNote, updatedAt: Date.now() } },
-            {},
-            () => res.json({ ok: true })
-        );
-    });
-});
-
-// ── ADMIN: GRACZE / BAN / SALDO ───────────────────────────────
-app.get('/api/admin/players', requireAdmin, (req, res) => {
-    const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
-    const skip = (page - 1) * limit;
-    const search = normalizeUsername(req.query.q);
-
-    // Buduj zapytanie — jeśli jest szukana fraza, przeszukaj username i _id
-    let query = {};
-    if (search) {
-        const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(escaped, 'i');
-        query = {
-            $or: [
-                { username: regex },
-                { _id: regex }
-            ]
-        };
-    }
-
-    db.count(query, (err, total) => {
-        if (err) return res.json({ players: [], total: 0, page: 1, pages: 0, limit });
-
-        db.find(query).sort({ username: 1 }).skip(skip).limit(limit).exec(async (err, docs) => {
-            if (err) return res.json({ players: [], total, page, pages: Math.ceil(total / limit), limit });
-            const players = (docs || []).map(p => ({
-                _id: p._id,
-                username: p.username || 'Unknown',
-                avatarUrl: p.avatarUrl || '',
-                balance: p.balance || 0,
-                banned: !!p.banned,
-                role: p.role || '',
-                createdAt: p.createdAt || 0
-            }));
-
-            // Dodaj liczbę gemów dla każdego gracza
-            await Promise.all(players.map(p => new Promise(resolve => {
-                getInventory(p._id, (items) => {
-                    p.gemsCount = items.filter(it => it.name.startsWith('Gem 💎')).reduce((s, it) => s + it.qty, 0);
-                    resolve();
-                });
-            })));
-
-            res.json({
-                players,
-                total,
-                page,
-                pages: Math.ceil(total / limit),
-                limit
-            });
-        });
-    });
-});
-
-app.post('/api/admin/players/:id/ban', requireAdmin, (req, res) => {
-    db.update({ _id: req.params.id }, { $set: { banned: true } }, {}, (err) => {
-        if (err) return res.status(500).json({ message: 'Błąd bana.' });
-        addLog('ban', `Zbanowano ${req.params.id}`, req);
-        res.json({ ok: true });
-    });
-});
-
-app.post('/api/admin/players/:id/unban', requireAdmin, (req, res) => {
-    db.update({ _id: req.params.id }, { $set: { banned: false } }, {}, (err) => {
-        if (err) return res.status(500).json({ message: 'Błąd odbanowania.' });
-        addLog('unban', `Odbanowano ${req.params.id}`, req);
-        res.json({ ok: true });
-    });
-});
-
-app.post('/api/admin/players/:id/role', requireAdmin, (req, res) => {
-    const role = normalizeUsername(req.body.role || '');
-    const validRoles = ['','helper','mod','smod','owner'];
-    if (!validRoles.includes(role)) return res.status(400).json({ message: 'Nieprawidłowa rola. Dozwolone: helper, mod, smod, owner' });
-    db.update({ _id: req.params.id }, { $set: { role } }, {}, (err) => {
-        if (err) return res.status(500).json({ message: 'Błąd zapisu roli.' });
-        addLog('role', `Zmieniono rolę ${req.params.id} na "${role}"`, req);
-        res.json({ ok: true, role });
-    });
-});
-
-app.post('/api/admin/players/:id/balance', requireAdmin, (req, res) => {
-    const amount = parseInt(req.body.amount);
-    if (isNaN(amount) || amount < 0) return res.status(400).json({ message: 'Podaj prawidłową kwotę (0+).' });
-    db.update({ _id: req.params.id }, { $set: { balance: amount } }, {}, (err) => {
-        if (err) return res.status(500).json({ message: 'Błąd zapisu salda.' });
-        addLog('balance', `Zmieniono saldo ${req.params.id} na 🪙 ${amount}`, req);
-        res.json({ ok: true, balance: amount });
-    });
-});
-
-// Admin: daj gemy graczowi
-app.post('/api/admin/players/:id/gems', requireAdmin, (req, res) => {
-    const body = req.body.item || req.body;
-    const gemName = normalizeUsername(body.name || body.gemName || '');
-    const qty = parseInt(body.qty) || 0;
-    if (!gemName || qty < 1) return res.status(400).json({ message: 'Podaj nazwę gema i ilość.' });
-    
-    const validGem = GEMS.find(g => g.name === gemName);
-    if (!validGem) return res.status(400).json({ message: 'Nieprawidłowa nazwa gema. Dostępne: ' + GEMS.map(g => g.name).join(', ') });
-    
-    const items = [{ name: gemName, qty }];
-    addToInventory(req.params.id, items, (result) => {
-        addLog('gems', `Dodano ${qty}x ${gemName} do ${req.params.id}`, req);
-        res.json({ ok: true, message: `Dodano ${qty}x ${gemName}` });
-    });
-});
-
-// ── ADMIN: SYSTEM MESSAGE ────────────────────────────────
-app.post('/api/admin/system-message', requireAdmin, (req, res) => {
-    const message = normalizeUsername(req.body.message).slice(0, 500);
-    if (!message) return res.status(400).json({ message: 'Wpisz treść wiadomości.'});
-    
-    const msg = {
-        _id: newId('sys'),
-        type: 'announcement',
-        message,
-        author: req.session.username || 'Admin',
-        timestamp: Date.now()
-    };
-    
-    // Wyślij do wszystkich podłączonych klientów
-    io.emit('systemMessage', msg);
-    
-    // Zapisz w logach
-    logsDb.insert(msg, () => {});
-    addLog('system-message', `Wysłano: "${message}"`, req);
-    
-    res.json({ ok: true });
-});
-
-// ── ADMIN: WARNINGS ──────────────────────────────────────
-app.post('/api/admin/players/:id/warn', requireAdmin, (req, res) => {
-    const reason = normalizeUsername(req.body.reason || '').slice(0, 300);
-    if (!reason) return res.status(400).json({ message: 'Podaj powód ostrzeżenia.' });
-    
-    db.findOne({ _id: req.params.id }, (err, user) => {
-        if (!user) return res.status(404).json({ message: 'Nie znaleziono gracza.' });
-        
-        const warning = {
-            _id: newId('warn'),
-            userId: req.params.id,
-            username: user.username || 'Unknown',
-            reason,
-            issuedBy: req.session.username || 'Admin',
-            timestamp: Date.now()
-        };
-        
-        warningsDb.insert(warning, (err) => {
-            if (err) return res.status(500).json({ message: 'Błąd zapisu ostrzeżenia.' });
-            addLog('warn', `Ostrzeżenie dla ${user.username} (${req.params.id}): ${reason}`, req);
-            res.json({ ok: true, warning });
-        });
-    });
-});
-
-app.get('/api/admin/players/:id/warnings', requireAdmin, (req, res) => {
-    warningsDb.find({ userId: req.params.id }).sort({ timestamp: -1 }).exec((err, docs) => {
-        res.json({ warnings: err ? [] : (docs || []) });
-    });
-});
-
-// ── PROFIL PUBLICZNY ──────────────────────────────────────────
-app.get('/api/profile/public/:userId', async (req, res) => {
-    const userId = normalizeUsername(req.params.userId);
-    if (!userId) return res.status(400).json({ message: 'Brak ID użytkownika.' });
-
-    db.findOne({ _id: userId }, (err, user) => {
-        if (err || !user) return res.status(404).json({ message: 'Nie znaleziono użytkownika.' });
-
-        getHistory(userId, (records) => {
-            let wins = 0, losses = 0, profit = 0, totalWagered = 0;
-            records.forEach(r => {
-                const me = r.creator?.robloxId === userId ? r.creator : r.joiner;
-                if (!me) return;
-                const myBet = r.creator?.robloxId === userId ? (r.totalValue || 0) : (r.joinValue || 0);
-                totalWagered += myBet;
-                if (me.won) { wins++; profit += (r.totalValue || 0); }
-                else { losses++; profit -= (r.totalValue || 0); }
-            });
-
-            const LEVEL_XP = 10000;
-            const level = Math.min(99, Math.floor(totalWagered / LEVEL_XP));
-            const levelNames = ['Basic','Enthusiast','Wagered','Wagered+','Maxed Wagered++'];
-            let levelName = levelNames[0];
-            if (level >= 99) levelName = levelNames[4];
-            else if (level >= 51) levelName = levelNames[3];
-            else if (level >= 16) levelName = levelNames[2];
-            else if (level >= 1) levelName = levelNames[1];
-
-            // Pobierz liczbę ostrzeżeń
-            warningsDb.count({ userId }, (err, warnCount) => {
-                res.json({
-                    username: user.username || 'Unknown',
-                    avatarUrl: user.avatarUrl || '',
-                    role: user.role || '',
-                    balance: user.balance || 0,
-                    total: records.length,
-                    wins,
-                    losses,
-                    profit,
-                    totalWagered,
-                    level,
-                    levelName,
-                    warnings: warnCount || 0,
-                    createdAt: user.createdAt || 0
-                });
-            });
-        });
-    });
-});
-
-// ── TIP ───────────────────────────────────────────────────────
-app.post('/api/profile/:userId/tip', requireLogin, (req, res) => {
-    const targetId = normalizeUsername(req.params.userId);
-    const amount = parseInt(req.body.amount);
-
-    if (!targetId) return res.status(400).json({ message: 'Brak ID użytkownika.' });
-    if (targetId === req.session.robloxId) return res.status(400).json({ message: 'Nie możesz wysłać tipa samemu sobie.' });
-    if (isNaN(amount) || amount < 1) return res.status(400).json({ message: 'Podaj prawidłową kwotę (minimum 1 🪙).' });
-
-    db.findOne({ _id: req.session.robloxId }, (err, sender) => {
-        if (err || !sender) return res.status(404).json({ message: 'Nie znaleziono nadawcy.' });
-        const senderBalance = sender.balance || 0;
-        if (senderBalance < amount) return res.status(400).json({ message: `Masz tylko 🪙 ${fmt(senderBalance)}.` });
-
-        db.findOne({ _id: targetId }, (err, target) => {
-            if (err || !target) return res.status(404).json({ message: 'Nie znaleziono docelowego użytkownika.' });
-
-            // Odejmij od nadawcy
-            db.update({ _id: req.session.robloxId }, { $set: { balance: senderBalance - amount } }, {}, () => {
-                // Dodaj do odbiorcy
-                const targetBalance = target.balance || 0;
-                db.update({ _id: targetId }, { $set: { balance: targetBalance + amount } }, {}, () => {
-                    addLog('tip', `${req.session.username} wysłał 🪙 ${amount} do ${target.username || targetId}`, req);
-                    res.json({ ok: true, message: `Wysłano 🪙 ${fmt(amount)} do ${target.username || 'użytkownika'}!` });
-                });
-            });
-        });
-    });
-});
-
-// ── ADMIN: DASHBOARD ─────────────────────────────────────
-app.get('/api/admin/dashboard', requireAdmin, (req, res) => {
-    const gamesPromise = new Promise(resolve => {
-        gamesDb.count({}, (err, count) => resolve(count || 0));
-    });
-    const playersPromise = new Promise(resolve => {
-        db.count({}, (err, count) => resolve(count || 0));
-    });
-    const logsPromise = new Promise(resolve => {
-        logsDb.count({}, (err, count) => resolve(count || 0));
-    });
-
-    // Gry z ostatnich 7 dni
-    const gamesByDayPromise = new Promise(resolve => {
-        const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-        gamesDb.find({ timestamp: { $gte: sevenDaysAgo } }).sort({ timestamp: 1 }).exec((err, docs) => {
-            if (err || !docs) return resolve([]);
-            const dayMap = {};
-            const days = [];
-            for (let i = 6; i >= 0; i--) {
-                const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
-                const key = d.toISOString().slice(0, 10);
-                dayMap[key] = 0;
-                days.push(key);
-            }
-            docs.forEach(doc => {
-                const key = new Date(doc.timestamp).toISOString().slice(0, 10);
-                if (dayMap[key] !== undefined) dayMap[key]++;
-            });
-            resolve(days.map(date => ({ date, count: dayMap[date] })));
-        });
-    });
-
-    // Logi według typu (ostatnie 500)
-    const logsByTypePromise = new Promise(resolve => {
-        logsDb.find({}).sort({ timestamp: -1 }).limit(500).exec((err, docs) => {
-            if (err || !docs) return resolve([]);
-            const typeMap = {};
-            docs.forEach(doc => {
-                const t = doc.type || 'other';
-                typeMap[t] = (typeMap[t] || 0) + 1;
-            });
-            resolve(Object.entries(typeMap).map(([type, count]) => ({ type, count })).sort((a, b) => b.count - a.count));
-        });
-    });
-
-    // Gry z ostatnich 24h według godziny
-    const gamesByHourPromise = new Promise(resolve => {
-        const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
-        gamesDb.find({ timestamp: { $gte: oneDayAgo } }).sort({ timestamp: 1 }).exec((err, docs) => {
-            if (err || !docs) return resolve([]);
-            const hourMap = {};
-            for (let i = 23; i >= 0; i--) {
-                const d = new Date(Date.now() - i * 60 * 60 * 1000);
-                const key = d.toISOString().slice(0, 13) + ':00'; // YYYY-MM-DDTHH:00
-                hourMap[key] = 0;
-            }
-            docs.forEach(doc => {
-                const d = new Date(doc.timestamp);
-                const key = d.toISOString().slice(0, 13) + ':00';
-                if (hourMap[key] !== undefined) hourMap[key]++;
-            });
-            const hours = Object.entries(hourMap)
-                .map(([hour, count]) => ({ hour: hour.slice(11, 16), count }))
-                .sort((a, b) => a.hour.localeCompare(b.hour));
-            resolve(hours);
-        });
-    });
-
-    // Rejestracje graczy z ostatnich 7 dni
-    const registrationsByDayPromise = new Promise(resolve => {
-        const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-        db.find({ createdAt: { $gte: sevenDaysAgo } }).sort({ createdAt: 1 }).exec((err, docs) => {
-            if (err || !docs) return resolve([]);
-            const dayMap = {};
-            const days = [];
-            for (let i = 6; i >= 0; i--) {
-                const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
-                const key = d.toISOString().slice(0, 10);
-                dayMap[key] = 0;
-                days.push(key);
-            }
-            docs.forEach(doc => {
-                const key = new Date(doc.createdAt).toISOString().slice(0, 10);
-                if (dayMap[key] !== undefined) dayMap[key]++;
-            });
-            resolve(days.map(date => ({ date, count: dayMap[date] })));
-        });
-    });
-
-    Promise.all([
-        gamesPromise,
-        playersPromise,
-        logsPromise,
-        gamesByDayPromise,
-        logsByTypePromise,
-        gamesByHourPromise,
-        registrationsByDayPromise
-    ]).then(([totalGames, totalPlayers, totalLogs, gamesByDay, logsByType, gamesByHour, registrationsByDay]) => {
-        res.json({
-            totalGames,
-            totalPlayers,
-            totalLogs,
-            onlinePlayers: connectedUsers.size,
-            gamesByDay,
-            logsByType,
-            gamesByHour,
-            registrationsByDay
-        });
-    });
-});
-
-// ── ADMIN: LOGS ──────────────────────────────────────────
-app.get('/api/admin/logs', requireAdmin, (req, res) => {
-    const type = normalizeUsername(req.query.type || '');
-    const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 50));
-    const skip = (page - 1) * limit;
-    const q = {};
-    if (type) q.type = type;
-    
-    logsDb.count(q, (err, total) => {
-        if (err) return res.json({ logs: [], total: 0, page: 1, pages: 0, limit });
-
-        logsDb.find(q).sort({ timestamp: -1 }).skip(skip).limit(limit).exec((err, docs) => {
-            res.json({
-                logs: err ? [] : (docs || []),
-                total,
-                page,
-                pages: Math.ceil(total / limit),
-                limit
-            });
-        });
-    });
-});
-
-function addLog(type, description, req) {
-    const entry = {
-        _id: newId('log'),
-        type,
-        description,
-        adminUsername: req?.session?.username || 'Admin',
-        timestamp: Date.now()
-    };
-    logsDb.insert(entry, (err) => {
-        if (err) console.error('Błąd zapisu logu:', err);
-    });
-}
-
-app.get('/api/admin/active-games', requireAdmin, (req, res) => {
-    const games = [...activeGames.values()].map(g => ({
-        id: g.id,
-        totalValue: g.totalValue || 0,
-        joinValue: g.joinValue || 0,
-        status: g.status,
-        createdAt: g.createdAt,
-        creator: g.creator ? { username: g.creator.username, robloxId: g.creator.robloxId, side: g.creator.side } : null,
-        joiner: g.joiner ? { username: g.joiner.username, robloxId: g.joiner.robloxId, side: g.joiner.side } : null
-    }));
-    // także gry z lobby (zapisane ale bez socketów)
-    lobbyDb.find({ status: 'waiting' }, (err, lobbyDocs) => {
-        if (lobbyDocs) {
-            lobbyDocs.forEach(doc => {
-                if (!games.find(g => g.id === doc.id)) {
-                    games.push({
-                        id: doc.id,
-                        totalValue: doc.totalValue || 0,
-                        joinValue: 0,
-                        status: 'waiting',
-                        createdAt: doc.createdAt,
-                        creator: doc.creator ? { username: doc.creator.username, robloxId: doc.creator.robloxId, side: doc.creator.side } : null,
-                        joiner: null
-                    });
-                }
-            });
-        }
-        res.json({ games: games.sort((a, b) => b.createdAt - a.createdAt) });
-    });
-});
-
-// ── ESCROW DB (itemy zablokowane podczas coinflip) ─────────────
-const escrowDb = new Datastore({ filename: path.join(__dirname, 'baza_escrow.db'), autoload: true });
-
-function holdItems(userId, items, gameId, callback) {
-    // Usuń itemy z inventory i zapisz w escrow
-    removeFromInventory(userId, items, (result) => {
-        if (!result.ok) return callback({ ok: false, message: result.message });
-        const escrowDoc = {
-            _id: gameId + '_' + userId,
-            userId,
-            items,
-            gameId,
-            heldAt: Date.now()
-        };
-        escrowDb.insert(escrowDoc, (err) => {
-            if (err) {
-                // rollback
-                addToInventory(userId, items, () => {});
-                return callback({ ok: false, message: 'Błąd escrow.' });
-            }
-            callback({ ok: true });
-        });
-    });
-}
-
-function releaseItems(gameId, winnerUserId, loserUserId, callback) {
-    escrowDb.find({ gameId }, (err, docs) => {
-        if (!docs || docs.length < 2) return callback({ ok: false, message: 'Brak escrow.' });
-        // Znajdź itemy winnera i losera
-        const winnerEscrow = docs.find(d => d.userId === winnerUserId);
-        const loserEscrow = docs.find(d => d.userId === loserUserId);
-        
-        // Winner dostaje wszystkie itemy (swoje + losera)
-        const allItems = [
-            ...(winnerEscrow?.items || []),
-            ...(loserEscrow?.items || [])
-        ];
-        
-        addToInventory(winnerUserId, allItems, (newItems) => {
-            // Usuń escrow
-            escrowDb.remove({ gameId }, {}, () => {
-                callback({ ok: true, items: newItems });
-            });
-        });
-    });
-}
-
-function returnItemsToOwner(gameId, userId, callback) {
-    escrowDb.findOne({ gameId, userId }, (err, doc) => {
-        if (!doc) return callback({ ok: false });
-        addToInventory(userId, doc.items, () => {
-            escrowDb.remove({ _id: doc._id }, {}, () => callback({ ok: true }));
-        });
-    });
-}
-
-
-
-// ── SOCKETS (coinflip) ────────────────────────────────────────
 io.on('connection', (socket) => {
-    const sess = socket.request.session;
-    
-    // Online count
-    connectedUsers.add(socket.id);
-    io.emit('onlineCount', connectedUsers.size);
-    
-    socket.on('checkSession', () => {
-        if (sess?.robloxId) {
-            getOrCreateUser(sess.robloxId, sess.username, sess.avatarUrl, (user) => {
-                socket.emit('sessionOk', { username: user.username, avatarUrl: user.avatarUrl, robloxId: user._id });
-                broadcastGames();
-            });
-        } else socket.emit('sessionNone');
+    console.log('New connection:', socket.id);
+    let loggedInUser = null;
+
+    socket.emit('chatHistory', chatHistory.slice(-100));
+
+    socket.on('login', (data) => {
+        const username = data.username;
+        const ban = db.isBanned(username);
+        if (ban) {
+            socket.emit('banned', { reason: ban.reason || 'Banned', expires: ban.expires });
+            return;
+        }
+        loggedInUser = username;
+        const player = db.getPlayer(username);
+        socket.emit('loginSuccess', { username, coins: player.coins, gems: player.gems, pet: player.pet, clientSeed: player.clientSeed, nonce: player.nonce, serverSeedHash: pf.getServerSeedHash() });
+        socket.broadcast.emit('systemMessage', `${username} joined the game!`);
+        io.emit('playerListUpdate');
     });
 
-    socket.on('getHistory', () => {
-        if (!sess?.robloxId) return;
-        getHistory(sess.robloxId, (records) => socket.emit('historyData', records));
+    socket.on('updateUsername', (data) => {
+        const players = db.getAllPlayers();
+        const oldName = loggedInUser;
+        const newName = data.username;
+        if (players[newName]) {
+            socket.emit('chatMessage', { user: 'System', msg: 'Username already taken!', time: Date.now() });
+            return;
+        }
+        if (players[oldName]) {
+            players[newName] = { ...players[oldName], username: newName };
+            delete players[oldName];
+            db.saveData(players);
+        }
+        loggedInUser = newName;
+        socket.emit('loginSuccess', { username: newName, coins: players[newName].coins, gems: players[newName].gems, pet: players[newName].pet, clientSeed: players[newName].clientSeed, nonce: players[newName].nonce, serverSeedHash: pf.getServerSeedHash() });
+        io.emit('playerListUpdate');
+        io.emit('systemMessage', `${oldName} changed name to ${newName}`);
     });
 
-    socket.on('createGame', (data) => {
-        if (!sess?.robloxId) return socket.emit('gameError', 'Nie jesteś zalogowany!');
-        const side = data.side;
-        const items = sanitizeItems(data.items);
-        const wildMode = !!data.wildMode;
-        const hugeBet = !!data.hugeBet;
-        if (!['heads','tails'].includes(side)) return socket.emit('gameError', 'Nieprawidłowa strona.');
-        if (!items.length) return socket.emit('gameError', 'Dodaj przynajmniej 1 item do zakładu.');
-
-        // Zablokuj itemy w escrow
-        holdItems(sess.robloxId, items, 'temp', (result) => {
-            if (!result.ok) return socket.emit('gameError', result.message);
-
-            const gameId = `G${gameCounter++}`;
-            const totalValue = items.reduce((s, it) => s + (it.rap || 0) * it.qty, 0);
-            const game = {
-                id: gameId,
-                items,
-                totalValue,
-                wildMode,
-                hugeBet,
-                status: 'waiting',
-                createdAt: Date.now(),
-                creator: { robloxId: sess.robloxId, username: sess.username, avatarUrl: sess.avatarUrl, side, socketId: socket.id },
-                joiner: null
-            };
-            activeGames.set(gameId, game);
-            saveLobbyGame(game);
-            // Aktualizuj escrow z właściwym gameId, potem emituj eventy
-            escrowDb.update({ userId: sess.robloxId, gameId: 'temp' }, { $set: { gameId } }, {}, () => {
-                socket.emit('gameCreated', { gameId });
-                broadcastGames();
-            });
-        });
+    socket.on('tip', (data) => {
+        if (!loggedInUser) return;
+        const sender = db.getPlayer(loggedInUser);
+        const amount = parseInt(data.amount);
+        if (isNaN(amount) || amount <= 0) return;
+        if (sender.coins < amount) {
+            socket.emit('chatMessage', { user: 'System', msg: 'Not enough coins!', time: Date.now() });
+            return;
+        }
+        const receiver = db.getPlayer(data.target);
+        sender.coins -= amount;
+        receiver.coins += amount;
+        db.savePlayer(loggedInUser, sender);
+        db.savePlayer(data.target, receiver);
+        io.emit('systemMessage', `${loggedInUser} tipped ${amount} coins to ${data.target}! 💰`);
+        io.emit('playerListUpdate');
     });
 
-    socket.on('cancelGame', (data) => {
-        if (!sess?.robloxId) return socket.emit('gameError', 'Nie jesteś zalogowany!');
-        const game = activeGames.get(data.gameId);
-        if (!game || game.status !== 'waiting') return socket.emit('gameError', 'Gry nie można anulować.');
-        if (game.creator.robloxId !== sess.robloxId) return socket.emit('gameError', 'Tylko twórca może anulować grę.');
-        // Zwróć itemy z escrow twórcy
-        returnItemsToOwner(game.id, sess.robloxId, (result) => {
-            activeGames.delete(game.id);
-            removeLobbyGame(game.id);
-            broadcastGames();
-        });
+    socket.on('chatMessage', (data) => {
+        if (!loggedInUser) return;
+        const msg = (data.msg || '').substring(0, 500);
+        const chatMsg = { user: loggedInUser, msg, time: Date.now() };
+        chatHistory.push(chatMsg);
+        if (chatHistory.length > MAX_CHAT_HISTORY) chatHistory.splice(0, chatHistory.length - MAX_CHAT_HISTORY);
+        db.saveChat(chatHistory);
+        io.emit('chatMessage', chatMsg);
     });
 
-    socket.on('joinGame', (data) => {
-        if (!sess?.robloxId) return socket.emit('gameError', 'Nie jesteś zalogowany!');
-        const game = activeGames.get(data.gameId);
-        if (!game || game.status !== 'waiting' || game.creator.robloxId === sess.robloxId) return socket.emit('gameError', 'Gra niedostępna.');
+    socket.on('systemMessage', (data) => {
+        if (!loggedInUser) return;
+        io.emit('systemMessage', data.msg);
+    });
 
-        // Pobierz itemy jointera z frontendu (wybrane w modalu)
-        const joinItems = sanitizeItems(data.items);
-        if (!joinItems.length) return socket.emit('gameError', 'Dodaj przynajmniej 1 item do zakładu.');
-        
-        // Walidacja Huge BET — tylko Titanic, Gargantuan, Gem
-        if (game.hugeBet) {
-            const allowedCats = ['Titanic', 'Gargantuan', 'Gem'];
-            for (const it of joinItems) {
-                const cat = guessCategory(it.name);
-                if (!allowedCats.includes(cat)) {
-                    return socket.emit('gameError', `Ta gra ma opcję Huge BET 🔥 — dozwolone tylko Titanic, Gargantuan i Gemy. "${it.name}" (${cat}) nie jest dozwolone.`);
-                }
-            }
-            // Also validate creator's items
-            for (const it of game.items) {
-                const cat = guessCategory(it.name);
-                if (!allowedCats.includes(cat)) {
-                    return socket.emit('gameError', `Błąd: item twórcy "${it.name}" (${cat}) nie jest dozwolony w Huge BET.`);
-                }
-            }
+    socket.on('whisper', (data) => {
+        if (!loggedInUser) return;
+        io.emit('whisper', { from: loggedInUser, to: data.target, msg: data.msg });
+    });
+
+    socket.on('coinflip', (data) => {
+        if (!loggedInUser) return;
+        const player = db.getPlayer(loggedInUser);
+        let amount = parseInt(data.amount);
+        if (isNaN(amount) || amount <= 0) return;
+
+        // Support gem wagering
+        if (data.item && games.WAGER_ITEMS[data.item]) {
+            const gemItem = games.WAGER_ITEMS[data.item];
+            if (player.gems < 1) { socket.emit('coinflipResult', { win: false, error: 'No gems!' }); return; }
+            player.gems -= 1;
+            amount = gemItem.value;
         }
 
-        // Sprawdź czy wartość itemów jest w zakresie ±7.5% wartości gry
-        const joinValue = joinItems.reduce((s, it) => s + (it.rap || 0) * it.qty, 0);
-        const minVal = Math.round(game.totalValue * 0.925);
-        const maxVal = Math.round(game.totalValue * 1.075);
-        if (joinValue < minVal || joinValue > maxVal) {
-            const fmtV = (v) => v.toLocaleString('en-US');
-            return socket.emit('gameError', `Twoje itemy muszą mieć wartość w zakresie ${fmtV(minVal)}-${fmtV(maxVal)} 🪙 (±7.5% od ${fmtV(game.totalValue)})`);
+        if (player.coins < amount) {
+            socket.emit('coinflipResult', { win: false, error: 'Not enough coins!' });
+            return;
         }
 
-        // Zablokuj itemy jointera w escrow
-        holdItems(sess.robloxId, joinItems, game.id, (result) => {
-            if (!result.ok) return socket.emit('gameError', result.message);
+        // Check cooldown
+        const cooldowns = db.loadCooldowns();
+        const now = Date.now();
+        if (cooldowns[loggedInUser] && now - cooldowns[loggedInUser] < 500) {
+            socket.emit('coinflipResult', { win: false, error: 'Wait a moment!' });
+            return;
+        }
+        cooldowns[loggedInUser] = now;
+        db.saveCooldowns(cooldowns);
 
-            game.joiner = { robloxId: sess.robloxId, username: sess.username, avatarUrl: sess.avatarUrl, socketId: socket.id, side: game.creator.side === 'heads' ? 'tails' : 'heads' };
-            game.joinerItems = joinItems;
-            game.joinValue = joinValue;
-            game.status = 'flipping';
-            removeLobbyGame(game.id);
-            broadcastGames();
+        const choice = data.choice || 'heads';
+        const isWild = data.wild === true;
 
-            const flipPayload = {
-                gameId: game.id,
-                items: game.items,
-                totalValue: game.totalValue,
-                joinerItems: game.joinerItems,
-                joinValue: game.joinValue,
-                wildMode: game.wildMode || false,
-                hugeBet: game.hugeBet || false,
-                creator: {
-                    username: game.creator.username,
-                    avatarUrl: game.creator.avatarUrl,
-                    side: game.creator.side
-                },
-                joiner: {
-                    username: game.joiner.username,
-                    avatarUrl: game.joiner.avatarUrl,
-                    side: game.joiner.side
+        // If looking for a game (PVP)
+        if (data.findGame) {
+            const existingId = Object.keys(games.activeGames).find(id => {
+                const g = games.activeGames[id];
+                return g.status === 'waiting' && g.creator !== loggedInUser;
+            });
+            if (existingId) {
+                const game = games.activeGames[existingId];
+                if (game.amount !== amount) {
+                    socket.emit('coinflipResult', { win: false, error: 'Amount mismatch!' });
+                    return;
                 }
-            };
-            const creatorSock = io.sockets.sockets.get(game.creator.socketId);
-            if (creatorSock) creatorSock.emit('flipStart', flipPayload);
-            socket.emit('flipStart', flipPayload);
+                // Join existing game - use Provably Fair
+                const serverSeed = pf.getCurrentServerSeed();
+                const clientSeed = player.clientSeed;
+                const nonce = player.nonce;
+                const fairResult = pf.computeFairResult(serverSeed, clientSeed, nonce);
+                const win = fairResult.result < 50 ? (choice === 'heads') : (choice === 'tails');
 
-            setTimeout(() => {
-                let winningSide = Math.random() < 0.5 ? 'heads' : 'tails';
-                if (game.wildMode) {
-                    winningSide = winningSide === 'heads' ? 'tails' : 'heads';
+                // Rotate seeds after each game
+                player.nonce++;
+                db.savePlayer(loggedInUser, player);
+                const gamePlayer = db.getPlayer(game.creator);
+
+                if (win) {
+                    const bonus = games.getPetBonus(loggedInUser, db);
+                    const winnings = Math.floor(amount * 2 * bonus);
+                    player.coins += winnings;
+                    db.savePlayer(loggedInUser, player);
+                    io.to(game.creatorSocket).emit('coinflipResult', { win: false, amount, result: !win ? 'tails' : 'heads', opponent: loggedInUser, gameOver: true });
+                    socket.emit('coinflipResult', { win: true, amount: winnings, result: win ? (choice === 'heads' ? 'heads' : 'tails') : (choice === 'heads' ? 'tails' : 'heads'), opponent: game.creator, gameOver: true, fairHash: fairResult.hash });
+                } else {
+                    const bonus = games.getPetBonus(game.creator, db);
+                    const winnings = Math.floor(amount * 2 * bonus);
+                    gamePlayer.coins += winnings;
+                    db.savePlayer(game.creator, gamePlayer);
+                    io.to(game.creatorSocket).emit('coinflipResult', { win: true, amount: winnings, result: !win ? 'tails' : 'heads', opponent: loggedInUser, gameOver: true, fairHash: fairResult.hash });
+                    socket.emit('coinflipResult', { win: false, amount, result: win ? (choice === 'heads' ? 'heads' : 'tails') : (choice === 'heads' ? 'tails' : 'heads'), opponent: game.creator, gameOver: true, fairHash: fairResult.hash });
                 }
-                const creatorWon = game.creator.side === winningSide;
-                const winnerId = creatorWon ? game.creator.robloxId : game.joiner.robloxId;
-                const loserId = creatorWon ? game.joiner.robloxId : game.creator.robloxId;
 
-                // Przekaż wszystkie itemy zwycięzcy
-                releaseItems(game.id, winnerId, loserId, (releaseResult) => {
-                    const resultBase = {
-                        ...flipPayload,
-                        winningSide,
-                        prize: joinValue + game.totalValue
-                    };
-                    if (creatorSock) {
-                        creatorSock.emit('gameResult', {
-                            ...resultBase,
-                            won: creatorWon,
-                            prize: creatorWon ? resultBase.prize : 0
-                        });
-                    }
-                    socket.emit('gameResult', {
-                        ...resultBase,
-                        won: !creatorWon,
-                        prize: !creatorWon ? resultBase.prize : 0
-                    });
-
-                    saveGameToHistory(game, winningSide);
-                    activeGames.delete(game.id);
-                    broadcastGames();
+                // ── Live Feed: add recent game ──
+                const winner = win ? loggedInUser : game.creator;
+                const loser = win ? game.creator : loggedInUser;
+                games.addRecentGame({
+                    type: 'coinflip',
+                    winner,
+                    loser,
+                    amount
                 });
-            }, 2600);
-        });
-    });
+                io.emit('recentGamesUpdated', games.getRecentGames());
 
-    // ── CHAT ────────────────────────────────────────────────
-    socket.on('getChatHistory', () => {
-        chatDb.find({}).sort({ timestamp: -1 }).limit(50).exec((err, docs) => {
-            const messages = (docs || []).reverse();
-            // Dodaj role do wiadomości (jeśli brak, użyj pustego stringa)
-            const withRoles = messages.map(m => ({ ...m, role: m.role || '' }));
-            socket.emit('chatHistory', withRoles);
-        });
-    });
+                pf.rotateServerSeed();
+                delete games.activeGames[existingId];
+                io.emit('gameListUpdate', Object.values(games.activeGames));
+                return;
+            }
 
-    socket.on('sendChatMessage', (data) => {
-        const text = normalizeUsername(data?.message || '').slice(0, 300);
-        if (!sess?.robloxId || !text) return;
-        
-        // Pobierz rolę użytkownika z bazy
-        let userRole = '';
-        db.findOne({ _id: sess.robloxId }, (err, user) => {
-            if (user && user.role) userRole = user.role;
-            
-            const msg = {
-                _id: newId('chat'),
-                userId: sess.robloxId,
-                username: sess.username || 'Unknown',
-                avatarUrl: sess.avatarUrl || '',
-                message: text,
-                role: userRole,
+            // Create new game
+            player.coins -= amount;
+            db.savePlayer(loggedInUser, player);
+            const game = {
+                id: socket.id + '-' + Date.now(),
+                creator: loggedInUser,
+                creatorSocket: socket.id,
+                amount,
+                status: 'waiting',
+                choice: choice,
+                isWild: isWild,
                 timestamp: Date.now()
             };
-            
-            chatDb.insert(msg, (err) => {
-            if (err) return;
-            // Usuń stare wiadomości (keep max 100)
-            chatDb.count({}, (err, count) => {
-                if (count > 100) {
-                    chatDb.find({}).sort({ timestamp: 1 }).limit(count - 100).exec((err, old) => {
-                        if (old) chatDb.remove({ _id: { $in: old.map(o => o._id) } }, { multi: true });
-                    });
-                }
-            });
-            io.emit('newChatMessage', msg);
+            games.activeGames[game.id] = game;
+            socket.emit('coinflipResult', { waiting: true, gameId: game.id, amount });
+            io.emit('gameListUpdate', Object.values(games.activeGames));
+            return;
+        }
+
+        // Solo coinflip - use Provably Fair
+        player.coins -= amount;
+        const serverSeed = pf.getCurrentServerSeed();
+        const clientSeed = player.clientSeed;
+        const nonce = player.nonce;
+        const fairResult = pf.computeFairResult(serverSeed, clientSeed, nonce);
+        const win = isWild ? Math.random() < 0.5 : (fairResult.result < 50 ? choice === 'heads' : choice === 'tails');
+
+        player.nonce++;
+
+        if (win) {
+            const bonus = games.getPetBonus(loggedInUser, db);
+            const winnings = Math.floor(amount * 2 * bonus);
+            player.coins += winnings;
+            player.totalWon += winnings;
+            socket.emit('coinflipResult', { win: true, amount: winnings, result: isWild ? 'wild' : (choice === 'heads' ? 'heads' : 'tails'), fairHash: fairResult.hash });
+        } else {
+            socket.emit('coinflipResult', { win: false, amount, result: isWild ? 'wild' : (choice === 'heads' ? 'tails' : 'heads'), fairHash: fairResult.hash });
+        }
+        player.totalWagered += amount;
+        player.gamesPlayed++;
+
+        // ── Live Feed: add recent game for solo ──
+        games.addRecentGame({
+            type: 'coinflip',
+            winner: win ? loggedInUser : 'House',
+            loser: win ? 'House' : loggedInUser,
+            amount
+        });
+        io.emit('recentGamesUpdated', games.getRecentGames());
+
+        // Record fair hash in history
+        const gameRecord = {
+            serverSeedHash: pf.getServerSeedHash(),
+            clientSeed,
+            nonce,
+            resultHash: fairResult.hash,
+            outcome: win ? 'win' : 'loss',
+            amount,
+            timestamp: Date.now()
+        };
+        if (!player.gameHistory) player.gameHistory = [];
+        player.gameHistory.push(gameRecord);
+        if (player.gameHistory.length > 50) player.gameHistory.shift();
+
+        db.savePlayer(loggedInUser, player);
+        pf.rotateServerSeed();
+        io.emit('playerListUpdate');
+    });
+
+    socket.on('getPlayerInfo', (data) => {
+        const player = db.getPlayer(data.username);
+        socket.emit('playerInfo', {
+            username: player.username,
+            coins: player.coins,
+            gems: player.gems,
+            pet: player.pet,
+            totalWagered: player.totalWagered || 0,
+            totalWon: player.totalWon || 0,
+            gamesPlayed: player.gamesPlayed || 0,
+            clientSeed: player.clientSeed,
+            nonce: player.nonce,
+            registered: player.registered
         });
     });
+
+    // Provably Fair - client seed management
+    socket.on('getClientSeed', () => {
+        if (!loggedInUser) return;
+        const player = db.getPlayer(loggedInUser);
+        socket.emit('clientSeedInfo', { clientSeed: player.clientSeed, nonce: player.nonce, serverSeedHash: pf.getServerSeedHash() });
     });
 
-    socket.on('countOnline', () => {
-        socket.emit('onlineCount', connectedUsers.size);
+    socket.on('setClientSeed', (data) => {
+        if (!loggedInUser) return;
+        const player = db.getPlayer(loggedInUser);
+        player.clientSeed = data.seed || db.generateClientSeed();
+        player.nonce = 0;
+        db.savePlayer(loggedInUser, player);
+        socket.emit('clientSeedInfo', { clientSeed: player.clientSeed, nonce: 0, serverSeedHash: pf.getServerSeedHash() });
     });
 
+    socket.on('rotateClientSeed', () => {
+        if (!loggedInUser) return;
+        const player = db.getPlayer(loggedInUser);
+        player.clientSeed = db.generateClientSeed();
+        player.nonce = 0;
+        db.savePlayer(loggedInUser, player);
+        socket.emit('clientSeedInfo', { clientSeed: player.clientSeed, nonce: 0, serverSeedHash: pf.getServerSeedHash() });
+    });
+
+    // Admin - seed management
+    socket.on('adminRotateServerSeed', () => {
+        if (!loggedInUser || !db.hasRole(loggedInUser, 'admin')) return;
+        const hash = pf.rotateServerSeed();
+        io.emit('serverSeedRotated', { serverSeedHash: hash });
+        socket.emit('chatMessage', { user: 'System', msg: 'Server seed rotated!', time: Date.now() });
+    });
+
+    // Profile / Stats
+    socket.on('getProfile', (data) => {
+        const username = data.username || loggedInUser;
+        if (!username) return;
+        const player = db.getPlayer(username);
+        socket.emit('profileInfo', {
+            username: player.username,
+            coins: player.coins,
+            gems: player.gems,
+            pet: player.pet,
+            totalWagered: player.totalWagered || 0,
+            totalWon: player.totalWon || 0,
+            gamesPlayed: player.gamesPlayed || 0,
+            registered: player.registered,
+            clientSeed: player.clientSeed,
+            nonce: player.nonce,
+            gameHistory: player.gameHistory || []
+        });
+    });
+
+    // Tip
+    socket.on('tipPlayer', (data) => {
+        if (!loggedInUser) return;
+        const sender = db.getPlayer(loggedInUser);
+        const amount = parseInt(data.amount);
+        if (isNaN(amount) || amount <= 0 || sender.coins < amount) return;
+        const receiver = db.getPlayer(data.target);
+        sender.coins -= amount;
+        receiver.coins += amount;
+        db.savePlayer(loggedInUser, sender);
+        db.savePlayer(data.target, receiver);
+        io.emit('systemMessage', `${loggedInUser} tipped ${amount} coins to ${data.target}! 💰`);
+        io.emit('playerListUpdate');
+        socket.emit('chatMessage', { user: 'System', msg: `You tipped ${amount} coins to ${data.target}!`, time: Date.now() });
+    });
+
+    // Admin actions
+    const adminActions = ['adminGiveCoins', 'adminGiveGems', 'adminSetCoins', 'adminResetPlayer', 'adminDeletePlayer'];
+    adminActions.forEach(action => {
+        socket.on(action, (data) => {
+            if (!loggedInUser || !db.hasRole(loggedInUser, 'admin')) return;
+            const target = db.getPlayer(data.username);
+            if (action === 'adminGiveCoins') target.coins += parseInt(data.amount);
+            else if (action === 'adminGiveGems') target.gems += parseInt(data.amount);
+            else if (action === 'adminSetCoins') target.coins = parseInt(data.amount);
+            else if (action === 'adminResetPlayer') {
+                const fresh = {
+                    username: data.username, coins: 500, gems: 0, registered: Date.now(),
+                    lastDaily: 0, totalWagered: 0, totalWon: 0, gamesPlayed: 0,
+                    pet: null, roles: [], clientSeed: db.generateClientSeed(), nonce: 0
+                };
+                db.savePlayer(data.username, fresh);
+                io.emit('playerListUpdate');
+                socket.emit('adminResult', { success: true });
+                return;
+            } else if (action === 'adminDeletePlayer') {
+                const players = db.loadData();
+                delete players[data.username];
+                db.saveData(players);
+                io.emit('playerListUpdate');
+                socket.emit('adminResult', { success: true });
+                return;
+            }
+            db.savePlayer(data.username, target);
+            io.emit('playerListUpdate');
+            socket.emit('adminResult', { success: true });
+        });
+    });
+
+    socket.on('adminSendToAll', (data) => {
+        if (!loggedInUser || !db.hasRole(loggedInUser, 'admin')) return;
+        io.emit('systemMessage', data.msg);
+    });
+
+    socket.on('adminSetRole', (data) => {
+        if (!loggedInUser || !db.hasRole(loggedInUser, 'admin')) return;
+        const target = db.getPlayer(data.username);
+        if (!target.roles) target.roles = [];
+        if (data.action === 'add' && !target.roles.includes(data.role)) {
+            target.roles.push(data.role);
+        } else if (data.action === 'remove') {
+            target.roles = target.roles.filter(r => r !== data.role);
+        }
+        db.savePlayer(data.username, target);
+        socket.emit('adminResult', { success: true });
+    });
+
+    socket.on('adminWarn', (data) => {
+        if (!loggedInUser || !db.hasRole(loggedInUser, 'admin')) return;
+        const warnings = db.loadWarnings();
+        if (!warnings[data.username]) warnings[data.username] = [];
+        warnings[data.username].push({ reason: data.reason, by: loggedInUser, time: Date.now() });
+        db.saveWarnings(warnings);
+        socket.emit('adminResult', { success: true });
+        io.emit('systemMessage', `${data.username} received a warning: ${data.reason}`);
+    });
+
+    socket.on('adminBan', (data) => {
+        if (!loggedInUser || !db.hasRole(loggedInUser, 'admin')) return;
+        const bans = db.loadBans();
+        bans[data.username] = { reason: data.reason, by: loggedInUser, time: Date.now(), expires: data.expires || null };
+        db.saveBans(bans);
+        io.emit('playerBanned', { username: data.username, reason: data.reason });
+        io.emit('systemMessage', `${data.username} has been banned: ${data.reason}`);
+        socket.emit('adminResult', { success: true });
+    });
+
+    socket.on('adminUnban', (data) => {
+        if (!loggedInUser || !db.hasRole(loggedInUser, 'admin')) return;
+        const bans = db.loadBans();
+        delete bans[data.username];
+        db.saveBans(bans);
+        io.emit('systemMessage', `${data.username} has been unbanned.`);
+        socket.emit('adminResult', { success: true });
+    });
+
+    socket.on('adminDeletePromo', (data) => {
+        if (!loggedInUser || !db.hasRole(loggedInUser, 'admin')) return;
+        const promos = db.loadPromo();
+        delete promos[data.code];
+        db.savePromo(promos);
+        socket.emit('adminPromos', promos);
+    });
+
+    socket.on('adminSetPassword', (data) => {
+        if (!loggedInUser || !db.hasRole(loggedInUser, 'admin')) return;
+        const admin = db.loadAdmin();
+        admin.password = data.password;
+        db.saveAdmin(admin);
+    });
+
+    // Daily reward
+    socket.on('dailyReward', () => {
+        if (!loggedInUser) return;
+        const player = db.getPlayer(loggedInUser);
+        const now = Date.now();
+        const msSinceLast = now - (player.lastDaily || 0);
+        if (msSinceLast < 86400000) {
+            const hoursLeft = Math.ceil((86400000 - msSinceLast) / 3600000);
+            socket.emit('chatMessage', { user: 'System', msg: `Daily in ${hoursLeft}h!`, time: now });
+            return;
+        }
+        const reward = 200;
+        player.coins += reward;
+        player.lastDaily = now;
+        db.savePlayer(loggedInUser, player);
+        socket.emit('chatMessage', { user: 'System', msg: `Daily ${reward} coins claimed!`, time: now });
+        io.emit('playerListUpdate');
+    });
+
+    // Shop
+    socket.on('buyItem', (data) => {
+        if (!loggedInUser) return;
+        const player = db.getPlayer(loggedInUser);
+        const item = games.PETS[data.item] || games.WAGER_ITEMS[data.item];
+        if (!item) return;
+        if (player.coins < item.cost && item.cost) {
+            socket.emit('chatMessage', { user: 'System', msg: 'Not enough coins!', time: Date.now() });
+            return;
+        }
+        if (item.cost) {
+            player.coins -= item.cost;
+        }
+        if (item.type === 'pet') {
+            if (player.pet) {
+                // Pet merge system
+                const currentPet = games.PETS[player.pet];
+                if (currentPet && currentPet.rarity === item.rarity) {
+                    const mergeResult = games.mergePets(player.pet, data.item);
+                    if (mergeResult) {
+                        player.pet = mergeResult;
+                        socket.emit('chatMessage', { user: 'System', msg: `Pets merged! You got ${games.PETS[mergeResult].displayName}!`, time: Date.now() });
+                    } else {
+                        socket.emit('chatMessage', { user: 'System', msg: 'Merge failed! Pet lost.', time: Date.now() });
+                        player.pet = null;
+                    }
+                } else {
+                    socket.emit('chatMessage', { user: 'System', msg: `You can only merge pets of the same rarity! You have ${currentPet ? currentPet.displayName : 'none'}.`, time: Date.now() });
+                    player.coins += item.cost; // Refund
+                }
+            } else {
+                player.pet = data.item;
+                socket.emit('chatMessage', { user: 'System', msg: `You bought ${item.displayName}!`, time: Date.now() });
+            }
+        } else if (item.type === 'gem') {
+            player.gems += 1;
+            socket.emit('chatMessage', { user: 'System', msg: `You bought 1x ${item.displayName}!`, time: Date.now() });
+        }
+        db.savePlayer(loggedInUser, player);
+        io.emit('playerListUpdate');
+    });
+
+    socket.on('usePromo', (data) => {
+        if (!loggedInUser) return;
+        const result = db.applyPromoBonus(loggedInUser, data.code);
+        if (result && result.error) {
+            socket.emit('chatMessage', { user: 'System', msg: result.error, time: Date.now() });
+        } else if (result && result.success) {
+            socket.emit('chatMessage', { user: 'System', msg: `Promo applied: +${result.value} ${result.type}!`, time: Date.now() });
+        } else {
+            socket.emit('chatMessage', { user: 'System', msg: 'Invalid code!', time: Date.now() });
+        }
+        io.emit('playerListUpdate');
+    });
+
+    // Admin data
+    socket.on('adminGetPlayers', (data) => {
+        if (!loggedInUser || !db.hasRole(loggedInUser, 'admin')) return;
+        const players = db.getAllPlayers();
+        const page = data.page || 1;
+        const search = data.search || '';
+        const pageSize = 20;
+        let list = Object.values(players);
+        if (search) list = list.filter(p => p.username && p.username.toLowerCase().includes(search.toLowerCase()));
+        const totalPages = Math.ceil(list.length / pageSize);
+        const paginated = list.slice((page - 1) * pageSize, page * pageSize);
+        socket.emit('adminPlayers', { players: paginated, totalPages, page });
+    });
+
+    socket.on('adminGetPlayer', (data) => {
+        if (!loggedInUser || !db.hasRole(loggedInUser, 'admin')) return;
+        const player = db.getPlayer(data.username);
+        socket.emit('adminPlayerDetail', player);
+    });
+
+    socket.on('adminGetLogs', () => {
+        if (!loggedInUser || !db.hasRole(loggedInUser, 'admin')) return;
+        try {
+            const logs = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'logs.json'), 'utf8'));
+            socket.emit('adminLogs', logs);
+        } catch (e) {
+            socket.emit('adminLogs', []);
+        }
+    });
+
+    socket.on('adminGetWarnings', (data) => {
+        if (!loggedInUser || !db.hasRole(loggedInUser, 'admin')) return;
+        const warnings = db.loadWarnings();
+        socket.emit('adminWarnings', data && data.username ? { [data.username]: warnings[data.username] || [] } : warnings);
+    });
+
+    socket.on('adminGetBans', () => {
+        if (!loggedInUser || !db.hasRole(loggedInUser, 'admin')) return;
+        const bans = db.loadBans();
+        socket.emit('adminBans', bans);
+    });
+
+    socket.on('adminLogin', (data) => {
+        const admin = db.loadAdmin();
+        if (data.password === admin.password) {
+            const player = db.getPlayer(data.username);
+            if (!player.roles) player.roles = [];
+            if (!player.roles.includes('admin')) {
+                player.roles.push('admin');
+                db.savePlayer(data.username, player);
+            }
+            socket.emit('adminLoginSuccess', { success: true });
+        } else {
+            socket.emit('adminLoginSuccess', { success: false });
+        }
+    });
+
+    socket.on('adminGetPromos', () => {
+        if (!loggedInUser || !db.hasRole(loggedInUser, 'admin')) return;
+        const promos = db.loadPromo();
+        socket.emit('adminPromos', promos);
+    });
+
+    socket.on('adminCreatePromo', (data) => {
+        if (!loggedInUser || !db.hasRole(loggedInUser, 'admin')) return;
+        const promos = db.loadPromo();
+        promos[data.code] = {
+            code: data.code,
+            rewardType: data.rewardType || 'coins',
+            rewardValue: parseInt(data.rewardValue) || 100,
+            maxUses: parseInt(data.maxUses) || 10,
+            used: 0,
+            usedBy: []
+        };
+        db.savePromo(promos);
+        socket.emit('adminPromos', promos);
+    });
+
+    socket.on('leaderboard', () => {
+        const players = db.getAllPlayers();
+        const sorted = Object.values(players)
+            .filter(p => p.coins > 0)
+            .sort((a, b) => b.coins - a.coins)
+            .slice(0, 50)
+            .map((p, i) => ({ rank: i + 1, username: p.username, coins: p.coins, gems: p.gems, pet: p.pet }));
+        socket.emit('leaderboardData', sorted);
+    });
+
+    // ── Live Feed: send recent games on request ──
+    socket.on('getRecentGames', () => {
+        socket.emit('recentGamesUpdated', games.getRecentGames());
+    });
+
+    // Disconnect
     socket.on('disconnect', () => {
-        connectedUsers.delete(socket.id);
-        io.emit('onlineCount', connectedUsers.size);
+        console.log('Disconnected:', socket.id);
+        Object.keys(games.activeGames).forEach(id => {
+            if (games.activeGames[id].creatorSocket === socket.id) {
+                if (games.activeGames[id].status === 'waiting') {
+                    const player = db.getPlayer(games.activeGames[id].creator);
+                    player.coins += games.activeGames[id].amount;
+                    db.savePlayer(games.activeGames[id].creator, player);
+                }
+                delete games.activeGames[id];
+            }
+        });
+        io.emit('gameListUpdate', Object.values(games.activeGames));
+        io.emit('playerListUpdate');
     });
 });
 
-function getLocalAddresses() {
-    const ips = [];
-    for (const iface of Object.values(os.networkInterfaces())) {
-        for (const cfg of iface) {
-            if (cfg.family === 'IPv4' && !cfg.internal) ips.push(cfg.address);
-        }
-    }
-    return ips;
-}
+// ── Clear inactive games periodically ─────────────────────────
+games.clearStaleGames(db);
 
-// ── TEST-ONLY ENDPOINTY ───────────────────────────────────────
-if (process.env.NODE_ENV === 'test') {
-    app.post('/api/test/login', (req, res) => {
-        req.session.robloxId = String(req.body.robloxId || '9999999999');
-        req.session.username = req.body.username || 'TestUser';
-        req.session.avatarUrl = req.body.avatarUrl || '';
-        getOrCreateUser(req.session.robloxId, req.session.username, req.session.avatarUrl, () => {
-            res.json({ ok: true });
-        });
-    });
+setInterval(() => {
+    games.clearStaleGames(db);
+}, 60000);
 
-    app.post('/api/test/login-admin', (req, res) => {
-        req.session.isAdmin = true;
-        res.json({ ok: true });
-    });
-}
-
-// Eksport dla testów
-module.exports = { app, server, normalizeUsername, fmt, guessCategory, newId, sanitizeItems, GEMS, GEM_MERGE_RECIPES, addToInventory, removeFromInventory };
-
-if (process.env.NODE_ENV !== 'test') {
-    server.listen(PORT, '0.0.0.0', () => {
-        loadLobbyGames((restored) => {
-            if (restored) console.log(`↻ Przywrócono ${restored} gier z lobby`);
-        });
-        console.log(`\n✅ BFLIP działa:`);
-        console.log(`   Ty (ten komputer):  http://localhost:${PORT}`);
-        const ips = getLocalAddresses();
-        if (ips.length) {
-            console.log(`   Inni w tej samej sieci Wi‑Fi:`);
-            ips.forEach(ip => console.log(`   → http://${ip}:${PORT}`));
-        } else {
-            console.log(`   (nie wykryto adresu LAN — sprawdź ipconfig)`);
-        }
-        console.log(`\n🔐 Admin panel:  http://localhost:${PORT}/admin  (token z env: ADMIN_TOKEN)\n`);
-
-        // ── OPCJONALNY BOT ────────────────────────────────────────
-        // Włącz przez ustawienie zmiennej ENABLE_BOT=true i ROBLOX_COOKIE
-        if (process.env.ENABLE_BOT === 'true') {
-            console.log('[SERVER] ENABLE_BOT=true — uruchamiam bota...');
-            try {
-                const { startBot } = require('./bot.js');
-                startBot();
-            } catch (e) {
-                console.warn('[SERVER] Bot nie mógł zostać uruchomiony:', e.message);
-                console.warn('[SERVER] Sprawdź czy biblioteki są zainstalowane (npm install)');
-            }
-        } else {
-            console.log('[SERVER] Bot pominięty (ustaw ENABLE_BOT=true i ROBLOX_COOKIE by włączyć)');
-        }
-    });
-}
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on port ${PORT}`);
+    
+    // Emit initial recent games broadcast
+    setInterval(() => {
+        io.emit('recentGamesUpdated', games.getRecentGames());
+    }, 15000);
+});
