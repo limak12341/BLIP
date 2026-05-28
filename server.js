@@ -4,6 +4,7 @@ const socketIo = require('socket.io');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const cookieParser = require('cookie-parser');
 
 // ── Rate limiting ────────────────────────────────────────────
 const loginAttempts = new Map(); // ip -> { count, resetAt }
@@ -51,9 +52,88 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 // ── Provably Fair Routes ──────────────────────────────────────
 pf.setupRoutes(app);
 
+// ── Weryfikacja Bio (kody logowania) ──────────────────────────
+const verifyCodes = new Map(); // username -> { code, createdAt }
+const sessions = new Map(); // token -> username
+
 // ── Express ────────────────────────────────────────────────────
 app.use(express.static(path.join(__dirname, '.')));
 app.use(express.json());
+app.use(cookieParser());
+
+// POST /verify-start — generuje kod weryfikacyjny
+app.post('/verify-start', (req, res) => {
+    const username = (req.body.username || '').trim();
+    if (!username || username.length < 2 || username.length > 20) {
+        return res.json({ message: 'Nieprawidłowy nick (2-20 znaków).' });
+    }
+    // Generuj losowy 6-znakowy kod
+    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+    verifyCodes.set(username, { code, createdAt: Date.now() });
+    // Czyść stare kody (> 5 min)
+    for (const [u, v] of verifyCodes) {
+        if (Date.now() - v.createdAt > 300000) verifyCodes.delete(u);
+    }
+    console.log(`[Verify] Code ${code} generated for ${username}`);
+    res.json({ code });
+});
+
+// POST /verify-check — weryfikuje i loguje użytkownika
+app.post('/verify-check', (req, res) => {
+    const username = (req.body.username || '').trim();
+    if (!username) {
+        return res.json({ success: false, message: 'Brak nicku.' });
+    }
+    const record = verifyCodes.get(username);
+    if (!record) {
+        return res.json({ success: false, message: 'Najpierw wygeneruj kod (krok 1).' });
+    }
+    if (Date.now() - record.createdAt > 300000) {
+        verifyCodes.delete(username);
+        return res.json({ success: false, message: 'Kod wygasł. Wygeneruj nowy.' });
+    }
+    
+    // Stwórz sesję
+    const ban = db.isBanned(username);
+    if (ban) {
+        return res.json({ success: false, message: 'Jesteś zbanowany: ' + ban.reason });
+    }
+    
+    const token = crypto.randomBytes(16).toString('hex');
+    sessions.set(token, username);
+    
+    // Zapisz gracza jeśli nie istnieje
+    const player = db.getPlayer(username);
+    
+    // Usuń kod
+    verifyCodes.delete(username);
+    
+    console.log(`[Verify] ${username} logged in via bio verification`);
+    
+    // Ustaw ciasteczko sesji
+    res.cookie('bf_session', token, {
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 dni
+        httpOnly: true,
+        sameSite: 'lax'
+    });
+    
+    res.json({ success: true, username });
+});
+
+// Weryfikacja sesji
+app.get('/api/session', (req, res) => {
+    const token = req.cookies?.bf_session;
+    if (!token || !sessions.has(token)) {
+        return res.json({ authenticated: false });
+    }
+    const username = sessions.get(token);
+    const player = db.getPlayer(username);
+    res.json({
+        authenticated: true,
+        username,
+        coins: player.coins
+    });
+});
 
 // ── Socket.IO ──────────────────────────────────────────────────
 const chatHistory = db.loadChat();
@@ -674,6 +754,30 @@ io.on('connection', (socket) => {
     });
 
     // Disconnect
+    socket.on('checkSession', () => {
+        const token = socket.handshake?.headers?.cookie
+            ?.split('; ')
+            ?.find(c => c.startsWith('bf_session='))
+            ?.split('=')[1];
+        if (token && sessions.has(token)) {
+            const username = sessions.get(token);
+            loggedInUser = username;
+            const player = db.getPlayer(username);
+            socket.emit('sessionOk', {
+                username,
+                robloxId: username,
+                avatarUrl: player.avatarUrl || '',
+                coins: player.coins || 0,
+                gems: player.gems || 0,
+                pet: player.pet || null,
+                clientSeed: player.clientSeed,
+                nonce: player.nonce || 0
+            });
+        } else {
+            socket.emit('sessionNone');
+        }
+    });
+
     socket.on('disconnect', () => {
         console.log('Disconnected:', socket.id);
         const timer = socketActivityTimers.get(socket.id);
