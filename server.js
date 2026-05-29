@@ -11,6 +11,35 @@ const loginAttempts = new Map(); // ip -> { count, resetAt }
 const MAX_LOGIN_ATTEMPTS = process.env.NODE_ENV === 'test' ? 100 : 5;
 const LOGIN_WINDOW_MS = 10000;
 
+// ── General socket rate limiter ───────────────────────────────
+const socketRateLimits = new Map(); // key -> { count, resetAt }
+function checkRateLimit(key, maxAttempts, windowMs) {
+    const now = Date.now();
+    let entry = socketRateLimits.get(key);
+    if (!entry || now > entry.resetAt) {
+        entry = { count: 0, resetAt: now + windowMs };
+        socketRateLimits.set(key, entry);
+    }
+    entry.count++;
+    return entry.count <= maxAttempts;
+}
+function cleanRateLimits() {
+    const now = Date.now();
+    for (const [key, entry] of socketRateLimits) {
+        if (now > entry.resetAt) socketRateLimits.delete(key);
+    }
+}
+setInterval(cleanRateLimits, 300000);
+
+// ── Bet & action limits ───────────────────────────────────────
+const MIN_BET = 1;
+const MAX_SOLO_BET = process.env.NODE_ENV === 'test' ? 1000000 : 5000;
+const MAX_PVP_BET = process.env.NODE_ENV === 'test' ? 1000000 : 50000;
+const CHAT_RATE_MAX = 3;      // max wiadomości na okno
+const CHAT_RATE_WINDOW = 2000; // 2 sekundy
+const TIP_RATE_MAX = 1;
+const TIP_RATE_WINDOW = 3000;  // 3 sekundy
+
 // ── Inactivity timeout ──────────────────────────────────────
 const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000; // 30 min
 const socketActivityTimers = new Map();
@@ -34,6 +63,12 @@ function validateUsername(name) {
     if (trimmed.length < 2 || trimmed.length > 20) return false;
     if (!/^[a-zA-Z0-9_\-\u0100-\u024F]+$/.test(trimmed)) return false;
     return true;
+}
+
+function validateClientSeed(seed) {
+    if (!seed || typeof seed !== 'string') return false;
+    if (seed.length < 4 || seed.length > 64) return false;
+    return /^[a-zA-Z0-9_-]+$/.test(seed);
 }
 
 const db = require('./modules/db');
@@ -519,6 +554,8 @@ io.on('connection', (socket) => {
     });
 
     socket.on('updateUsername', (data) => {
+        // Rate limit username changes
+        if (!checkRateLimit(`updateName:${loggedInUser}`, 1, 10000)) return;
         const players = db.getAllPlayers();
         const oldName = loggedInUser;
         const newName = data.username;
@@ -539,6 +576,8 @@ io.on('connection', (socket) => {
 
     socket.on('tip', (data) => {
         if (!loggedInUser) return;
+        // Rate limiting - max 1 tip per 3 seconds
+        if (!checkRateLimit(`tip:${loggedInUser}`, TIP_RATE_MAX, TIP_RATE_WINDOW)) return;
         const sender = db.getPlayer(loggedInUser);
         const amount = parseInt(data.amount);
         if (isNaN(amount) || amount <= 0) return;
@@ -562,7 +601,9 @@ io.on('connection', (socket) => {
 
     socket.on('chatMessage', (data) => {
         if (!loggedInUser) return;
-        const msg = (data.msg || '').substring(0, 500);
+        // Rate limiting - max 3 messages per 2 seconds
+        if (!checkRateLimit(`chat:${loggedInUser}`, CHAT_RATE_MAX, CHAT_RATE_WINDOW)) return;
+        const msg = db.escapeHtml((data.msg || '').substring(0, 500));
         const chatMsg = { user: loggedInUser, msg, time: Date.now() };
         chatHistory.push(chatMsg);
         if (chatHistory.length > MAX_CHAT_HISTORY) chatHistory.splice(0, chatHistory.length - MAX_CHAT_HISTORY);
@@ -572,12 +613,14 @@ io.on('connection', (socket) => {
 
     socket.on('systemMessage', (data) => {
         if (!loggedInUser) return;
-        io.emit('systemMessage', data.msg);
+        io.emit('systemMessage', db.escapeHtml((data.msg || '').substring(0, 500)));
     });
 
     socket.on('whisper', (data) => {
         if (!loggedInUser) return;
-        io.emit('whisper', { from: loggedInUser, to: data.target, msg: data.msg });
+        // Rate limit whispers
+        if (!checkRateLimit(`whisper:${loggedInUser}`, 3, 2000)) return;
+        io.emit('whisper', { from: loggedInUser, to: data.target, msg: db.escapeHtml((data.msg || '').substring(0, 500)) });
     });
 
     socket.on('coinflip', (data) => {
@@ -585,6 +628,18 @@ io.on('connection', (socket) => {
         const player = db.getPlayer(loggedInUser);
         let amount = parseInt(data.amount);
         if (isNaN(amount) || amount <= 0) return;
+        
+        // Min/max bet check
+        if (amount < MIN_BET) {
+            socket.emit('coinflipResult', { win: false, error: `Minimum bet is ${MIN_BET}!` });
+            return;
+        }
+        const isPVP = data.findGame === true;
+        const maxBet = isPVP ? MAX_PVP_BET : MAX_SOLO_BET;
+        if (amount > maxBet) {
+            socket.emit('coinflipResult', { win: false, error: `Max ${isPVP ? 'PVP' : 'solo'} bet is ${maxBet}!` });
+            return;
+        }
 
         // Support gem wagering
         if (data.item && games.WAGER_ITEMS[data.item]) {
@@ -676,7 +731,11 @@ io.on('connection', (socket) => {
                 return;
             }
 
-            // Create new game
+            // Create new game (rate limited: max 1 per 5s)
+            if (!checkRateLimit(`createGame:${loggedInUser}`, 1, 5000)) {
+                socket.emit('coinflipResult', { win: false, error: 'You can only create 1 game per 5 seconds!' });
+                return;
+            }
             player.coins -= amount;
             db.savePlayer(loggedInUser, player);
             const game = {
@@ -776,7 +835,12 @@ io.on('connection', (socket) => {
     socket.on('setClientSeed', (data) => {
         if (!loggedInUser) return;
         const player = db.getPlayer(loggedInUser);
-        player.clientSeed = data.seed || db.generateClientSeed();
+        const newSeed = data.seed;
+        if (newSeed && !validateClientSeed(newSeed)) {
+            socket.emit('chatMessage', { user: 'System', msg: 'Invalid client seed (4-64 chars, letters/numbers/underscores/hyphens only).', time: Date.now() });
+            return;
+        }
+        player.clientSeed = newSeed || db.generateClientSeed();
         player.nonce = 0;
         db.savePlayer(loggedInUser, player);
         socket.emit('clientSeedInfo', { clientSeed: player.clientSeed, nonce: 0, serverSeedHash: pf.getServerSeedHash() });
@@ -822,6 +886,8 @@ io.on('connection', (socket) => {
     // Tip
     socket.on('tipPlayer', (data) => {
         if (!loggedInUser) return;
+        // Rate limiting - max 1 tip per 3 seconds
+        if (!checkRateLimit(`tipPlayer:${loggedInUser}`, TIP_RATE_MAX, TIP_RATE_WINDOW)) return;
         const sender = db.getPlayer(loggedInUser);
         const amount = parseInt(data.amount);
         if (isNaN(amount) || amount <= 0 || sender.coins < amount) return;
