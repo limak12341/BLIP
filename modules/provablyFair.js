@@ -1,139 +1,250 @@
 const crypto = require('crypto');
-const path = require('path');
-const fs = require('fs');
 
-const DATA_DIR = path.join(__dirname, '..', 'data');
-const SERVER_SEEDS_FILE = path.join(DATA_DIR, 'server_seeds.json');
+// ═══════════════════════════════════════
+//  PROVABLY FAIR 2.0
+// ═══════════════════════════════════════
+//
+//  Algorytm:
+//    1. serverSeed = 64 znaki hex (512-bit)
+//    2. serverSeedHash = SHA-256(SHA-256(SHA-256(serverSeed)))
+//       → potrójne hashowanie dla bezpieczeństwa
+//    3. fairResult = HMAC-SHA512(serverSeed, `${clientSeed}-${nonce}`)
+//       → pierwszych 7 znaków hex → liczba 0-999,999
+//    4. Po każdej grze seed jest rotowany, a stary zapisywany do DB
+// ═══════════════════════════════════════
 
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+let currentServerSeed = null;
+let seedHistory = [];        // bufor w pamięci (ostatnie 100)
+const MAX_MEMORY_HISTORY = 100;
+let db = null;               // wstrzykiwany z zewnątrz przez init(dbInstance)
 
-// ── Server Seed Management ──
-function getServerSeeds() {
-    try {
-        if (fs.existsSync(SERVER_SEEDS_FILE)) {
-            return JSON.parse(fs.readFileSync(SERVER_SEEDS_FILE, 'utf8'));
+// ── Inicjalizacja ──────────────────────────────────────────────
+function init(dbInstance) {
+    db = dbInstance;
+    loadOrCreateSeed();
+}
+
+function generateServerSeed() {
+    return crypto.randomBytes(32).toString('hex'); // 64 znaki hex
+}
+
+// Potrójne SHA-256
+function tripleSha256(data) {
+    const first = crypto.createHash('sha256').update(data).digest();
+    const second = crypto.createHash('sha256').update(first).digest();
+    const third = crypto.createHash('sha256').update(second).digest();
+    return third.toString('hex');
+}
+
+function loadOrCreateSeed() {
+    // Próbujemy wczytać aktywny seed z DB
+    if (db && db.getActiveServerSeed) {
+        const stored = db.getActiveServerSeed();
+        if (stored && stored.seed) {
+            currentServerSeed = stored.seed;
+            return;
         }
-    } catch (e) { /* ignore */ }
-
-    // Init with 100 pre-generated seeds
-    const seeds = [];
-    for (let i = 0; i < 100; i++) {
-        seeds.push(crypto.randomBytes(32).toString('hex'));
     }
-    const data = { seeds, currentIndex: 0 };
-    fs.writeFileSync(SERVER_SEEDS_FILE, JSON.stringify(data, null, 2));
-    return data;
+    // Albo generujemy nowy
+    currentServerSeed = generateServerSeed();
+    const hash = tripleSha256(currentServerSeed);
+
+    if (db && db.saveSeedRecord) {
+        db.saveSeedRecord({
+            seed: currentServerSeed,
+            hash: hash,
+            revealed: false,
+            createdAt: Date.now(),
+            gamesPlayed: 0
+        });
+    }
+
+    seedHistory.push({ seed: currentServerSeed, hash, revealed: false, createdAt: Date.now() });
+    if (seedHistory.length > MAX_MEMORY_HISTORY) seedHistory.shift();
 }
 
-function saveServerSeeds(data) {
-    fs.writeFileSync(SERVER_SEEDS_FILE, JSON.stringify(data, null, 2));
-}
+// ── Główne funkcje ─────────────────────────────────────────────
 
 function getCurrentServerSeed() {
-    const data = getServerSeeds();
-    return data.seeds[data.currentIndex];
+    return currentServerSeed;
 }
 
 function getServerSeedHash() {
-    const seed = getCurrentServerSeed();
-    return crypto.createHash('sha256').update(seed).digest('hex');
+    if (!currentServerSeed) return null;
+    return tripleSha256(currentServerSeed);
+}
+
+function computeFairResult(serverSeed, clientSeed, nonce) {
+    // HMAC-SHA512(serverSeed, `${clientSeed}-${nonce}`)
+    const hmac = crypto.createHmac('sha512', serverSeed);
+    hmac.update(`${clientSeed}-${nonce}`);
+    const digest = hmac.digest('hex');
+    // Pierwsze 7 znaków hex → liczba całkowita
+    const hex = digest.substring(0, 7);
+    const number = parseInt(hex, 16);
+    return number % 1000000; // 0 – 999,999
 }
 
 function rotateServerSeed() {
-    const data = getServerSeeds();
-    data.currentIndex++;
-    if (data.currentIndex >= data.seeds.length) {
-        // Generate 50 more seeds
-        for (let i = 0; i < 50; i++) {
-            data.seeds.push(crypto.randomBytes(32).toString('hex'));
-        }
+    // Zapisz stary seed jako ujawniony
+    const oldSeed = currentServerSeed;
+    const oldHash = tripleSha256(oldSeed);
+
+    if (db && db.revealSeedRecord) {
+        db.revealSeedRecord(oldSeed, Date.now());
     }
-    saveServerSeeds(data);
-    return getServerSeedHash();
-}
 
-function getRevealedSeeds(count = 5) {
-    const data = getServerSeeds();
-    const revealed = [];
-    const startIndex = Math.max(0, data.currentIndex - count);
-    for (let i = startIndex; i < data.currentIndex; i++) {
-        revealed.push({ index: i, seed: data.seeds[i] });
+    // Wygeneruj nowy seed
+    currentServerSeed = generateServerSeed();
+    const newHash = tripleSha256(currentServerSeed);
+
+    if (db && db.saveSeedRecord) {
+        db.saveSeedRecord({
+            seed: currentServerSeed,
+            hash: newHash,
+            revealed: false,
+            createdAt: Date.now(),
+            gamesPlayed: 0
+        });
     }
-    return revealed;
+
+    // Aktualizuj in-memory history
+    const existingIdx = seedHistory.findIndex(s => s.seed === oldSeed);
+    if (existingIdx !== -1) {
+        seedHistory[existingIdx].revealed = true;
+    } else {
+        seedHistory.push({ seed: oldSeed, hash: oldHash, revealed: true, createdAt: Date.now() });
+    }
+    seedHistory.push({ seed: currentServerSeed, hash: newHash, revealed: false, createdAt: Date.now() });
+    if (seedHistory.length > MAX_MEMORY_HISTORY * 2) {
+        seedHistory = seedHistory.slice(-MAX_MEMORY_HISTORY);
+    }
+
+    return oldSeed;
 }
 
-// ── Fair Result Computation ──
-function computeFairResult(serverSeed, clientSeed, nonce) {
-    const hmac = crypto.createHmac('sha256', serverSeed);
-    hmac.update(`${clientSeed}:${nonce}`);
-    const hash = hmac.digest('hex');
-    // Convert to a number between 0 and 9999 (for 0.01% precision)
-    const num = parseInt(hash.substring(0, 8), 16) % 10000;
-    const result = num / 100; // 0.00 to 99.99
-    return { result, hash, num };
-}
-
-// ── Seed Info ──
-function getSeedInfo() {
-    const data = getServerSeeds();
-    return {
-        currentIndex: data.currentIndex,
-        totalSeeds: data.seeds.length,
-        remainingSeeds: data.seeds.length - data.currentIndex - 1,
-        serverSeedHash: getServerSeedHash()
-    };
-}
-
-// ── Express Routes Setup ──
+// ── REST API ────────────────────────────────────────────────────
 function setupRoutes(app) {
-    // REST API endpoints for Provably Fair
+    // Pobierz aktualny hash seeda
     app.get('/api/provably-fair/seed-hash', (req, res) => {
-        res.json({ serverSeedHash: getServerSeedHash() });
+        const hash = getServerSeedHash();
+        res.json({ hash });
     });
 
-    app.get('/api/provably-fair/revealed-seeds', (req, res) => {
-        const count = parseInt(req.query.count) || 5;
-        res.json({ seeds: getRevealedSeeds(count) });
-    });
-
-    app.post('/api/provably-fair/rotate-seed', (req, res) => {
-        const hash = rotateServerSeed();
-        res.json({ serverSeedHash: hash });
-    });
-
-    app.post('/api/provably-fair/verify', (req, res) => {
-        const { serverSeed, clientSeed, nonce } = req.body;
-        if (!serverSeed || !clientSeed || nonce === undefined) {
-            return res.status(400).json({ error: 'Missing parameters' });
-        }
-        const result = computeFairResult(serverSeed, clientSeed, nonce);
-        res.json(result);
-    });
-
+    // Pobierz info o seedzie (hash, nonce itp)
     app.get('/api/provably-fair/seed-info', (req, res) => {
-        res.json(getSeedInfo());
+        res.json({
+            serverSeedHash: getServerSeedHash(),
+            algorithm: 'SHA-256×3 + HMAC-SHA512'
+        });
     });
 
-    app.get('/api/provably-fair/status', (req, res, next) => {
-        // This is handled by the main server.js for session context
-        next();
+    // Pobierz ujawnione seedy z historii (z DB)
+    app.get('/api/provably-fair/revealed-seeds', (req, res) => {
+        let list = [];
+        if (db && db.getRevealedSeeds) {
+            list = db.getRevealedSeeds();
+        } else {
+            list = seedHistory.filter(s => s.revealed).slice(-50).reverse();
+        }
+        // Nie wysyłamy seeda, tylko hash i timestamp
+        const safe = list.map(s => ({
+            hash: tripleSha256(s.seed || ''),
+            revealedAt: s.revealedAt || s.createdAt,
+            gamesPlayed: s.gamesPlayed || 0
+        }));
+        res.json({ seeds: safe });
     });
 
-    app.post('/api/provably-fair/client-seed', (req, res, next) => {
-        // This is handled by the main server.js for session context
-        next();
+    // Pobierz pełną historię seedów (administracyjnie)
+    app.get('/api/provably-fair/seed-history', (req, res) => {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 20;
+
+        let all = [];
+        if (db && db.getAllSeedRecords) {
+            all = db.getAllSeedRecords();
+        } else {
+            all = [...seedHistory].reverse();
+        }
+
+        const total = all.length;
+        const pages = Math.ceil(total / limit) || 1;
+        const slice = all.slice((page - 1) * limit, page * limit);
+
+        const safe = slice.map(s => ({
+            hash: tripleSha256(s.seed || ''),
+            revealed: s.revealed || false,
+            createdAt: s.createdAt,
+            revealedAt: s.revealedAt || null,
+            gamesPlayed: s.gamesPlayed || 0
+        }));
+
+        res.json({ seeds: safe, page, pages, total });
     });
 
-    app.post('/api/provably-fair/rotate', (req, res, next) => {
-        // This is handled by the main server.js for session context
-        next();
+    // Zweryfikuj konkretną grę
+    app.post('/api/provably-fair/verify', (req, res) => {
+        const { serverSeed, clientSeed, nonce, expectedResult } = req.body || {};
+        if (!serverSeed || clientSeed === undefined || nonce === undefined) {
+            return res.status(400).json({ success: false, message: 'Brak wymaganych pól: serverSeed, clientSeed, nonce' });
+        }
+        const computedResult = computeFairResult(serverSeed, clientSeed, nonce);
+        const computedHash = tripleSha256(serverSeed);
+        res.json({
+            success: true,
+            serverSeedHash: computedHash,
+            clientSeed,
+            nonce,
+            computedResult,
+            expectedResult: expectedResult !== undefined ? expectedResult : null,
+            match: expectedResult !== undefined ? computedResult === expectedResult : null
+        });
+    });
+
+    // Zmień clientSeed
+    app.post('/api/provably-fair/client-seed', (req, res) => {
+        const { username, clientSeed } = req.body || {};
+        if (!username || !clientSeed) {
+            return res.status(400).json({ success: false, message: 'Brak username lub clientSeed' });
+        }
+        // Zweryfikuj przez cookie sesji
+        const token = req.cookies?.bf_token;
+        if (!token || !db || !db.findPlayerByToken) {
+            return res.status(401).json({ success: false, message: 'Nieautoryzowany' });
+        }
+        const player = db.findPlayerByToken(token);
+        if (!player || player.username !== username) {
+            return res.status(403).json({ success: false, message: 'Brak dostępu' });
+        }
+        if (db.updatePlayerClientSeed) {
+            db.updatePlayerClientSeed(username, clientSeed);
+        }
+        res.json({ success: true, clientSeed });
+    });
+
+    // Pobierz status (dla frontendu — szczegółowy)
+    app.get('/api/provably-fair/status', (req, res) => {
+        const token = req.cookies?.bf_token;
+        let player = null;
+        if (token && db && db.findPlayerByToken) {
+            player = db.findPlayerByToken(token);
+        }
+        res.json({
+            serverSeedHash: getServerSeedHash(),
+            algorithm: 'SHA-256×3 + HMAC-SHA512',
+            clientSeed: player ? player.clientSeed : null,
+            nonce: player ? player.nonce : null
+        });
     });
 }
 
+// ── Eksport ─────────────────────────────────────────────────────
 module.exports = {
-    getServerSeeds, saveServerSeeds,
-    getCurrentServerSeed, getServerSeedHash,
-    rotateServerSeed, getRevealedSeeds,
-    computeFairResult, getSeedInfo,
+    init,
+    getCurrentServerSeed,
+    getServerSeedHash,
+    computeFairResult,
+    rotateServerSeed,
     setupRoutes
 };

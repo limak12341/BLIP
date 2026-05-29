@@ -10,6 +10,7 @@ const PROMO_FILE = path.join(DATA_DIR, 'promo.json');
 const ADMIN_FILE = path.join(DATA_DIR, 'admin.json');
 const WARNINGS_FILE = path.join(DATA_DIR, 'warnings.json');
 const BANS_FILE = path.join(DATA_DIR, 'bans.json');
+const SEEDS_FILE = path.join(DATA_DIR, 'seeds.json');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -205,6 +206,72 @@ function escapeHtml(str) {
     }[m]));
 }
 
+// ── Seed History (Provably Fair 2.0) ──
+function loadSeeds() {
+    return loadJson(SEEDS_FILE, []);
+}
+
+function saveSeeds(data) {
+    saveJson(SEEDS_FILE, data);
+}
+
+function saveSeedRecord(record) {
+    const seeds = loadSeeds();
+    // Usuń poprzedni aktywny (nieujawniony) seed jeśli istnieje
+    const idx = seeds.findIndex(s => !s.revealed && s.seed === record.seed);
+    if (idx === -1) {
+        seeds.push(record);
+    } else {
+        seeds[idx] = record;
+    }
+    saveSeeds(seeds);
+}
+
+function revealSeedRecord(seed, revealedAt) {
+    const seeds = loadSeeds();
+    const idx = seeds.findIndex(s => s.seed === seed);
+    if (idx !== -1) {
+        seeds[idx].revealed = true;
+        seeds[idx].revealedAt = revealedAt || Date.now();
+        saveSeeds(seeds);
+    }
+}
+
+function getActiveServerSeed() {
+    const seeds = loadSeeds();
+    const active = seeds.find(s => !s.revealed);
+    return active || null;
+}
+
+function getAllSeedRecords() {
+    return loadSeeds();
+}
+
+function getRevealedSeeds() {
+    const seeds = loadSeeds();
+    return seeds.filter(s => s.revealed).reverse();
+}
+
+function findPlayerByToken(token) {
+    // token to bf_token cookie — przeszukaj wszystkich graczy
+    const players = loadData();
+    for (const username of Object.keys(players)) {
+        const p = players[username];
+        if (p.token === token) return p;
+    }
+    return null;
+}
+
+function updatePlayerClientSeed(username, clientSeed) {
+    const players = loadData();
+    if (players[username]) {
+        players[username].clientSeed = clientSeed;
+        saveData(players);
+        return true;
+    }
+    return false;
+}
+
 module.exports = {
     loadData, saveData,
     getPlayer, savePlayer, getAllPlayers, usernameExists, getPlayerCount,
@@ -215,5 +282,8 @@ module.exports = {
     loadAdmin, saveAdmin,
     loadWarnings, saveWarnings,
     loadBans, saveBans, isBanned, hasRole,
+    saveSeedRecord, revealSeedRecord, getActiveServerSeed,
+    getAllSeedRecords, getRevealedSeeds,
+    findPlayerByToken, updatePlayerClientSeed,
     fmt, escapeHtml
 };

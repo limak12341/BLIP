@@ -133,25 +133,24 @@ describe('pf.computeFairResult()', () => {
     test('zwraca spójny wynik dla tych samych parametrów', () => {
         const r1 = pf.computeFairResult('seed123', 'client456', 1);
         const r2 = pf.computeFairResult('seed123', 'client456', 1);
-        expect(r1.result).toBe(r2.result);
-        expect(r1.hash).toBe(r2.hash);
+        expect(r1).toBe(r2);
     });
 
     test('zwraca różny wynik dla różnych nonce', () => {
         const r1 = pf.computeFairResult('seed', 'client', 1);
         const r2 = pf.computeFairResult('seed', 'client', 2);
-        expect(r1.result).not.toBe(r2.result);
+        expect(r1).not.toBe(r2);
     });
 
-    test('wynik jest w zakresie 0-99.99', () => {
+    test('wynik jest w zakresie 0-999999', () => {
         const r = pf.computeFairResult('seed', 'client', 1);
-        expect(r.result).toBeGreaterThanOrEqual(0);
-        expect(r.result).toBeLessThanOrEqual(99.99);
+        expect(r).toBeGreaterThanOrEqual(0);
+        expect(r).toBeLessThanOrEqual(999999);
     });
 
-    test('hash to 64-znakowy hex', () => {
+    test('wynik to liczba całkowita', () => {
         const r = pf.computeFairResult('seed', 'client', 1);
-        expect(r.hash).toMatch(/^[a-f0-9]{64}$/);
+        expect(Number.isInteger(r)).toBe(true);
     });
 });
 
@@ -159,16 +158,6 @@ describe('pf.getServerSeedHash()', () => {
     test('zwraca hash SHA-256', () => {
         const hash = pf.getServerSeedHash();
         expect(hash).toMatch(/^[a-f0-9]{64}$/);
-    });
-});
-
-describe('pf.getSeedInfo()', () => {
-    test('zwraca informacje o seedach', () => {
-        const info = pf.getSeedInfo();
-        expect(info).toHaveProperty('currentIndex');
-        expect(info).toHaveProperty('totalSeeds');
-        expect(info).toHaveProperty('serverSeedHash');
-        expect(info.totalSeeds).toBeGreaterThan(0);
     });
 });
 
@@ -270,16 +259,18 @@ describe('GET /api/provably-fair/seed-hash', () => {
     test('zwraca hash server seeda', async () => {
         const res = await request(app).get('/api/provably-fair/seed-hash');
         expect(res.status).toBe(200);
-        expect(res.body.serverSeedHash).toMatch(/^[a-f0-9]{64}$/);
+        expect(res.body.hash).toMatch(/^[a-f0-9]{64}$/);
     });
 });
 
 describe('GET /api/provably-fair/seed-info', () => {
-    test('zwraca informacje o seedach', async () => {
+    test('zwraca informacje o seedach i algorytmie', async () => {
         const res = await request(app).get('/api/provably-fair/seed-info');
         expect(res.status).toBe(200);
-        expect(res.body).toHaveProperty('currentIndex');
-        expect(res.body).toHaveProperty('remainingSeeds');
+        expect(res.body).toHaveProperty('serverSeedHash');
+        expect(res.body).toHaveProperty('algorithm');
+        expect(res.body.serverSeedHash).toMatch(/^[a-f0-9]{64}$/);
+        expect(res.body.algorithm).toContain('SHA-256');
     });
 });
 
@@ -293,12 +284,13 @@ describe('GET /api/provably-fair/revealed-seeds', () => {
 });
 
 describe('POST /api/provably-fair/verify', () => {
-    test('weryfikuje wynik fair (brak parametrów = 400)', async () => {
+    test('odrzuca żądanie bez parametrów (400)', async () => {
         const res = await request(app)
             .post('/api/provably-fair/verify')
             .send({});
         expect(res.status).toBe(400);
-        expect(res.body.error).toBe('Missing parameters');
+        expect(res.body.success).toBe(false);
+        expect(res.body.message).toContain('Brak wymaganych pól');
     });
 
     test('weryfikuje wynik fair z poprawnymi parametrami', async () => {
@@ -306,9 +298,11 @@ describe('POST /api/provably-fair/verify', () => {
             .post('/api/provably-fair/verify')
             .send({ serverSeed: 'testseed', clientSeed: 'testclient', nonce: 0 });
         expect(res.status).toBe(200);
-        expect(res.body).toHaveProperty('result');
-        expect(res.body).toHaveProperty('hash');
-        expect(res.body).toHaveProperty('num');
+        expect(res.body.success).toBe(true);
+        expect(res.body).toHaveProperty('serverSeedHash');
+        expect(res.body).toHaveProperty('computedResult');
+        expect(typeof res.body.computedResult).toBe('number');
+        expect(res.body.computedResult).toBeGreaterThanOrEqual(0);
     });
 });
 

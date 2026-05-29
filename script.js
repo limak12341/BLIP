@@ -1991,10 +1991,64 @@ window.openProvablyFair = async function() {
         
         // Uzupełnij client seed input
         document.getElementById('pf-client-seed-input').value = data.clientSeed;
+        
+        // Aktualizuj nonce progress bar
+        updateNonceBar(data.nonce, data.maxNonce || 10000);
+        
+        // Wczytaj historię seedów
+        loadSeedHistory();
     } catch (e) {
         statusEl.innerHTML = `<div class="pf-error">⚠️ Błąd: ${escapeHtml(e.message)}</div>`;
     }
 };
+
+// ── Nonce Progress Bar ────────────────────────────────────────
+function updateNonceBar(nonce, maxNonce) {
+    const numEl = document.getElementById('pf-nonce-bar-num');
+    const fillEl = document.getElementById('pf-nonce-fill');
+    const trackEl = document.getElementById('pf-nonce-track');
+    if (!numEl || !fillEl) return;
+    
+    numEl.textContent = nonce || 0;
+    const pct = maxNonce > 0 ? Math.min(100, ((nonce || 0) / maxNonce) * 100) : 0;
+    fillEl.style.width = pct + '%';
+    
+    // Highlight gdy nonce jest wysoki (>50%)
+    if (trackEl) {
+        trackEl.classList.toggle('high', pct > 50);
+    }
+}
+
+// ── Seed History ──────────────────────────────────────────────
+async function loadSeedHistory() {
+    const section = document.getElementById('pf-seed-history');
+    const list = document.getElementById('pf-seed-list');
+    if (!section || !list) return;
+    
+    try {
+        const data = await apiJson('/api/provably-fair/seed-history');
+        const seeds = data.seeds || [];
+        
+        if (!seeds.length) {
+            section.style.display = 'none';
+            return;
+        }
+        
+        section.style.display = 'block';
+        list.innerHTML = seeds.map((s, i) => {
+            const statusClass = s.isActive ? 'active' : s.isRevealed ? 'revealed' : 'used';
+            const statusLabel = s.isActive ? 'Aktualny' : s.isRevealed ? 'Ujawniony' : 'Zużyty';
+            const hashDisplay = s.serverSeedHash ? s.serverSeedHash.slice(0, 16) + '...' : '—';
+            return `<div class="pf-seed-item">
+                <span class="pf-seed-index">#${seeds.length - i}</span>
+                <span class="pf-seed-hash">${escapeHtml(hashDisplay)}</span>
+                <span class="pf-seed-status ${statusClass}">${statusLabel}</span>
+            </div>`;
+        }).join('');
+    } catch (e) {
+        section.style.display = 'none';
+    }
+}
 
 window.closeProvablyFair = function() {
     document.getElementById('pf-modal').style.display = 'none';

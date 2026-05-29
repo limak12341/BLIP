@@ -823,12 +823,33 @@
         <p class="pf-intro-text">System <strong>Provably Fair</strong> pozwala zweryfikować, że wyniki gier są uczciwe i nie zostały zmanipulowane przez serwer.</p>
       </div>
 
+      <!-- Nonce progress bar -->
+      <div class="pf-nonce-bar-wrap">
+        <div class="pf-nonce-bar-header">
+          <span class="pf-nonce-bar-label">Nonce Progress</span>
+          <span class="pf-nonce-bar-num" id="pf-nonce-bar-num">0</span>
+        </div>
+        <div class="pf-nonce-track" id="pf-nonce-track">
+          <div class="pf-nonce-fill" id="pf-nonce-fill" style="width:0%"></div>
+        </div>
+        <div class="pf-nonce-markers">
+          <span class="pf-nonce-marker">0</span>
+          <span class="pf-nonce-marker">100</span>
+          <span class="pf-nonce-marker">500</span>
+          <span class="pf-nonce-marker">1000</span>
+          <span class="pf-nonce-marker">2500</span>
+          <span class="pf-nonce-marker">5000</span>
+          <span class="pf-nonce-marker">10000</span>
+        </div>
+      </div>
+
       <!-- Status seedów -->
       <div class="pf-section">
         <div class="pf-section-title">📊 Status seedów</div>
         <div id="pf-status" class="pf-status">
           <div class="pf-loading">Ładowanie...</div>
         </div>
+        <button class="pf-status-refresh" onclick="openProvablyFair()">⟳ Odśwież</button>
       </div>
 
       <!-- Client Seed -->
@@ -875,6 +896,14 @@
           <button class="pf-btn pf-btn-secondary" onclick="autoVerifyLastGame()" style="margin-top:6px">⚡ Auto-weryfikacja ostatniej gry</button>
         </div>
         <div id="pf-verify-result" class="pf-verify-result"></div>
+      </div>
+
+      <!-- Seed History -->
+      <div class="pf-seed-history" id="pf-seed-history" style="display:none">
+        <div class="pf-seed-history-title">📜 Historia seedów</div>
+        <div class="pf-seed-list" id="pf-seed-list">
+          <div class="pf-loading">Ładowanie...</div>
+        </div>
       </div>
 
       <!-- Jak to działa -->

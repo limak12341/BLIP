@@ -4,3 +4,7 @@ node_modules/
 .DS_Store
 server.log
 nul
+data/
+*.test-result/
+playwright-report/
+worker.js

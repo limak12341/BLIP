@@ -40,6 +40,9 @@ const db = require('./modules/db');
 const pf = require('./modules/provablyFair');
 const games = require('./modules/games');
 
+// Inicjalizacja Provably Fair z bazą danych
+pf.init(db);
+
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server);
@@ -156,6 +159,27 @@ app.post('/api/admin/promo-codes/:id/delete', requireAdmin, (req, res) => {
 
 // ── Provably Fair Routes ──────────────────────────────────────
 pf.setupRoutes(app);
+
+// Provably Fair seed history API (dla admina)
+app.get('/api/provably-fair/seed-history', (req, res) => {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    let all = [];
+    if (db && db.getAllSeedRecords) {
+        all = db.getAllSeedRecords();
+    }
+    const total = all.length;
+    const pages = Math.ceil(total / limit) || 1;
+    const slice = all.slice((page - 1) * limit, page * limit).reverse();
+    const safe = slice.map(s => ({
+        hash: s.hash || (require('crypto').createHash('sha256').update(String(s.seed || '')).digest().toString('hex')),
+        revealed: s.revealed || false,
+        createdAt: s.createdAt,
+        revealedAt: s.revealedAt || null,
+        gamesPlayed: s.gamesPlayed || 0
+    }));
+    res.json({ seeds: safe, page, pages, total });
+});
 
 // ── Weryfikacja Bio (kody logowania) ──────────────────────────
 const verifyCodes = new Map(); // username -> { code, createdAt }
@@ -397,12 +421,15 @@ io.on('connection', (socket) => {
                 const clientSeed = player.clientSeed;
                 const nonce = player.nonce;
                 const fairResult = pf.computeFairResult(serverSeed, clientSeed, nonce);
-                const win = fairResult.result < 50 ? (choice === 'heads') : (choice === 'tails');
+                const win = fairResult < 500000 ? (choice === 'heads') : (choice === 'tails');
 
                 // Rotate seeds after each game
                 player.nonce++;
                 db.savePlayer(loggedInUser, player);
                 const gamePlayer = db.getPlayer(game.creator);
+
+                // Przygotuj dane Provably Fair
+                const pfData = { serverSeed, clientSeed, nonce: player.nonce - 1, result: fairResult, win, gameId: existingId };
 
                 if (win) {
                     const bonus = games.getPetBonus(loggedInUser, db);
@@ -410,14 +437,18 @@ io.on('connection', (socket) => {
                     player.coins += winnings;
                     db.savePlayer(loggedInUser, player);
                     io.to(game.creatorSocket).emit('coinflipResult', { win: false, amount, result: !win ? 'tails' : 'heads', opponent: loggedInUser, gameOver: true });
-                    socket.emit('coinflipResult', { win: true, amount: winnings, result: win ? (choice === 'heads' ? 'heads' : 'tails') : (choice === 'heads' ? 'tails' : 'heads'), opponent: game.creator, gameOver: true, fairHash: fairResult.hash });
+                    io.to(game.creatorSocket).emit('provablyFairResult', { ...pfData, opponent: true });
+                    socket.emit('coinflipResult', { win: true, amount: winnings, result: win ? (choice === 'heads' ? 'heads' : 'tails') : (choice === 'heads' ? 'tails' : 'heads'), opponent: game.creator, gameOver: true });
+                    socket.emit('provablyFairResult', { ...pfData, opponent: false });
                 } else {
                     const bonus = games.getPetBonus(game.creator, db);
                     const winnings = Math.floor(amount * 2 * bonus);
                     gamePlayer.coins += winnings;
                     db.savePlayer(game.creator, gamePlayer);
-                    io.to(game.creatorSocket).emit('coinflipResult', { win: true, amount: winnings, result: !win ? 'tails' : 'heads', opponent: loggedInUser, gameOver: true, fairHash: fairResult.hash });
-                    socket.emit('coinflipResult', { win: false, amount, result: win ? (choice === 'heads' ? 'heads' : 'tails') : (choice === 'heads' ? 'tails' : 'heads'), opponent: game.creator, gameOver: true, fairHash: fairResult.hash });
+                    io.to(game.creatorSocket).emit('coinflipResult', { win: true, amount: winnings, result: !win ? 'tails' : 'heads', opponent: loggedInUser, gameOver: true });
+                    io.to(game.creatorSocket).emit('provablyFairResult', { ...pfData, opponent: true });
+                    socket.emit('coinflipResult', { win: false, amount, result: win ? (choice === 'heads' ? 'heads' : 'tails') : (choice === 'heads' ? 'tails' : 'heads'), opponent: game.creator, gameOver: true });
+                    socket.emit('provablyFairResult', { ...pfData, opponent: false });
                 }
 
                 // ── Live Feed: add recent game ──
@@ -456,25 +487,30 @@ io.on('connection', (socket) => {
             return;
         }
 
-        // Solo coinflip - use Provably Fair
+        // Solo coinflip - use Provably Fair 2.0
         player.coins -= amount;
         const serverSeed = pf.getCurrentServerSeed();
         const clientSeed = player.clientSeed;
         const nonce = player.nonce;
         const fairResult = pf.computeFairResult(serverSeed, clientSeed, nonce);
-        const win = isWild ? Math.random() < 0.5 : (fairResult.result < 50 ? choice === 'heads' : choice === 'tails');
+        const win = isWild ? Math.random() < 0.5 : (fairResult < 500000 ? choice === 'heads' : choice === 'tails');
 
         player.nonce++;
+
+        // Przygotuj dane Provably Fair dla frontendu
+        const pfData = { serverSeed, clientSeed, nonce: nonce, result: fairResult, win, gameId: socket.id + '-' + Date.now() };
 
         if (win) {
             const bonus = games.getPetBonus(loggedInUser, db);
             const winnings = Math.floor(amount * 2 * bonus);
             player.coins += winnings;
             player.totalWon += winnings;
-            socket.emit('coinflipResult', { win: true, amount: winnings, result: isWild ? 'wild' : (choice === 'heads' ? 'heads' : 'tails'), fairHash: fairResult.hash });
+            socket.emit('coinflipResult', { win: true, amount: winnings, result: isWild ? 'wild' : (choice === 'heads' ? 'heads' : 'tails') });
         } else {
-            socket.emit('coinflipResult', { win: false, amount, result: isWild ? 'wild' : (choice === 'heads' ? 'tails' : 'heads'), fairHash: fairResult.hash });
+            socket.emit('coinflipResult', { win: false, amount, result: isWild ? 'wild' : (choice === 'heads' ? 'tails' : 'heads') });
         }
+        socket.emit('provablyFairResult', pfData);
+
         player.totalWagered += amount;
         player.gamesPlayed++;
 
@@ -487,12 +523,12 @@ io.on('connection', (socket) => {
         });
         io.emit('recentGamesUpdated', games.getRecentGames());
 
-        // Record fair hash in history
+        // Record fair result in history
         const gameRecord = {
             serverSeedHash: pf.getServerSeedHash(),
             clientSeed,
             nonce,
-            resultHash: fairResult.hash,
+            result: fairResult,
             outcome: win ? 'win' : 'loss',
             amount,
             timestamp: Date.now()

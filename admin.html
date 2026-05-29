@@ -68,6 +68,7 @@
         <button class="chip" id="tab-btn-system">📢 Wiadomości</button>
         <button class="chip" id="tab-btn-promo">🎁 Promo</button>
         <button class="chip" id="tab-btn-dashboard">📊 Dashboard</button>
+        <button class="chip" id="tab-btn-seeds">🌱 Seed Explorer</button>
       </div>
     </div>
 
@@ -247,6 +248,68 @@
       <button class="btn-ok" id="dash-refresh-btn" style="padding:10px 20px;font-size:.82rem">↻ Odśwież dane</button>
     </div>
 
+    <!-- TAB: Seed Explorer -->
+    <div id="tab-seeds" style="display:none">
+      <div class="seed-explorer-grid">
+        <div class="seed-explorer-card">
+          <div class="seed-explorer-header">
+            <span class="seed-explorer-title">🌱 Historia seedów</span>
+            <button class="seed-explorer-refresh" onclick="refreshSeedExplorer()">↻ Odśwież</button>
+          </div>
+          <div style="overflow-x:auto">
+            <table class="seed-table" id="seed-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Server Seed (hash)</th>
+                  <th>Client Seed</th>
+                  <th>Nonce</th>
+                  <th>Status</th>
+                  <th>Ujawniony</th>
+                </tr>
+              </thead>
+              <tbody id="seed-table-body">
+                <tr><td colspan="6" style="text-align:center;color:var(--muted);padding:30px;font-family:Inter">Ładowanie...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="seed-explorer-card">
+          <div class="seed-explorer-header">
+            <span class="seed-explorer-title">🔍 Weryfikacja wyniku</span>
+          </div>
+          <div class="admin-verify-tool">
+            <div class="admin-verify-row">
+              <label>Server Seed</label>
+              <input id="admin-verify-server-seed" placeholder="Server seed (ujawniony)">
+            </div>
+            <div class="admin-verify-row">
+              <label>Client Seed</label>
+              <input id="admin-verify-client-seed" placeholder="Client seed">
+            </div>
+            <div class="admin-verify-row">
+              <label>Nonce</label>
+              <input id="admin-verify-nonce" type="number" placeholder="0" value="0">
+            </div>
+            <div class="admin-verify-row">
+              <label>Oczekiwany wynik</label>
+              <select id="admin-verify-result">
+                <option value="">— Nie wiem —</option>
+                <option value="heads">ORZEŁ (heads)</option>
+                <option value="tails">RESZKA (tails)</option>
+              </select>
+            </div>
+            <div style="display:flex;gap:10px;margin-top:4px">
+              <button class="btn-ok" onclick="adminVerifyPF()" style="padding:10px 20px;font-size:.82rem">🔍 Zweryfikuj</button>
+              <button class="seed-explorer-refresh" onclick="adminClearVerify()" style="font-size:.78rem">✕ Wyczyść</button>
+            </div>
+            <div id="admin-verify-result" class="admin-verify-result"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- TAB: Wiadomości systemowe -->
     <div id="tab-system" style="display:none">
       <div class="admin-title" style="margin-bottom:14px">📢 Wiadomość systemowa</div>
@@ -342,6 +405,7 @@
     else if (tab === 'system') refreshSystemHistory();
     else if (tab === 'promo') refreshPromoCodes(1);
     else if (tab === 'dashboard') refreshDashboard();
+    else if (tab === 'seeds') refreshSeedExplorer();
   }
 
   document.getElementById('tab-btn-requests').addEventListener('click', () => switchTab('requests'));
@@ -351,6 +415,7 @@
   document.getElementById('tab-btn-system').addEventListener('click', () => switchTab('system'));
   document.getElementById('tab-btn-promo').addEventListener('click', () => switchTab('promo'));
   document.getElementById('tab-btn-dashboard').addEventListener('click', () => switchTab('dashboard'));
+  document.getElementById('tab-btn-seeds').addEventListener('click', () => switchTab('seeds'));
   document.getElementById('dash-refresh-btn').addEventListener('click', refreshDashboard);
 
   // ── LOGS ──

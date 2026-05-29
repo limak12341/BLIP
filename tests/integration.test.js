@@ -226,8 +226,8 @@ describe('Socket.io - coinflip solo', () => {
             const data = await loginAndCoinflip(socket, 10, 'heads');
             expect(data).toHaveProperty('win');
             expect(data).toHaveProperty('amount');
-            expect(data).toHaveProperty('fairHash');
-            expect(['heads', 'tails']).toContain(data.result);
+        expect(['heads', 'tails']).toContain(data.result);
+        // Provably Fair data jest wysyłane osobno przez 'provablyFairResult'
         } finally {
             closeSocket(socket);
         }
