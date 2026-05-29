@@ -157,6 +157,214 @@ app.post('/api/admin/promo-codes/:id/delete', requireAdmin, (req, res) => {
     res.json({ success: true });
 });
 
+// ── Admin Dashboard API ──────────────────────────────────────
+app.get('/api/admin/dashboard', requireAdmin, (req, res) => {
+    const players = db.getAllPlayers();
+    const playerArray = Object.values(players);
+    const totalPlayers = playerArray.length;
+    const onlinePlayers = io.engine?.clientsCount || 0;
+
+    let totalGames = 0;
+    playerArray.forEach(p => { totalGames += p.gamesPlayed || 0; });
+
+    let logs = [];
+    try { logs = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'logs.json'), 'utf8')); } catch (e) { logs = []; }
+    const totalLogs = logs.length;
+
+    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const gamesByDay = {};
+    const registrationsByDay = {};
+    for (let i = 6; i >= 0; i--) {
+        const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+        const key = d.toISOString().split('T')[0];
+        gamesByDay[key] = 0;
+        registrationsByDay[key] = 0;
+    }
+
+    playerArray.forEach(p => {
+        const regDate = new Date(p.registered).toISOString().split('T')[0];
+        if (registrationsByDay[regDate] !== undefined) registrationsByDay[regDate]++;
+        if (p.gameHistory) {
+            p.gameHistory.forEach(game => {
+                const gameDate = new Date(game.timestamp).toISOString().split('T')[0];
+                if (gamesByDay[gameDate] !== undefined) gamesByDay[gameDate]++;
+            });
+        }
+    });
+
+    const gamesByHour = {};
+    for (let i = 0; i < 24; i++) gamesByHour[i] = 0;
+    const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+    playerArray.forEach(p => {
+        if (p.gameHistory) {
+            p.gameHistory.forEach(game => {
+                if (game.timestamp >= dayAgo) {
+                    const hour = new Date(game.timestamp).getHours();
+                    gamesByHour[hour]++;
+                }
+            });
+        }
+    });
+
+    const logsByType = {};
+    logs.slice(-500).forEach(log => {
+        const type = log.type || 'other';
+        if (!logsByType[type]) logsByType[type] = 0;
+        logsByType[type]++;
+    });
+
+    res.json({
+        totalGames,
+        onlinePlayers,
+        totalPlayers,
+        totalLogs,
+        gamesByDay: Object.entries(gamesByDay).map(([date, count]) => ({ date, count })),
+        registrationsByDay: Object.entries(registrationsByDay).map(([date, count]) => ({ date, count })),
+        gamesByHour: Object.entries(gamesByHour).map(([hour, count]) => ({ hour: parseInt(hour), count })),
+        logsByType: Object.entries(logsByType).map(([type, count]) => ({ type, count }))
+    });
+});
+
+// ── Admin Players API ─────────────────────────────────────────
+app.get('/api/admin/players', requireAdmin, (req, res) => {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const search = (req.query.q || '').toLowerCase();
+
+    const all = db.getAllPlayers();
+    let list = Object.entries(all).map(([id, p]) => ({
+        _id: id,
+        username: p.username || id,
+        coins: p.coins || 0,
+        gemsCount: p.gems || 0,
+        balance: p.coins || 0,
+        role: (p.roles && p.roles.length > 0) ? p.roles[0] : '',
+        banned: !!db.isBanned(id),
+        avatarUrl: p.avatarUrl || '',
+        gamesPlayed: p.gamesPlayed || 0,
+        registered: p.registered || 0
+    }));
+
+    if (search) {
+        list = list.filter(p => p.username.toLowerCase().includes(search) || p._id.toLowerCase().includes(search));
+    }
+
+    const total = list.length;
+    const pages = Math.ceil(total / limit) || 1;
+    const paginated = list.slice((page - 1) * limit, page * limit);
+
+    res.json({ players: paginated, total, pages, page });
+});
+
+// ── Admin Logs API ───────────────────────────────────────────
+app.get('/api/admin/logs', requireAdmin, (req, res) => {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    const typeFilter = req.query.type || '';
+
+    let logs = [];
+    try { logs = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'logs.json'), 'utf8')); } catch (e) { logs = []; }
+
+    if (typeFilter) logs = logs.filter(l => l.type === typeFilter);
+    logs.reverse();
+
+    const total = logs.length;
+    const pages = Math.ceil(total / limit) || 1;
+    const paginated = logs.slice((page - 1) * limit, page * limit);
+
+    res.json({ logs: paginated, total, pages, page });
+});
+
+// ── Admin Requests API ────────────────────────────────────────
+app.get('/api/admin/requests', requireAdmin, (req, res) => {
+    const statusFilter = req.query.status || '';
+    const typeFilter = req.query.type || '';
+
+    let requests = [];
+    try { requests = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'requests.json'), 'utf8')); } catch (e) { requests = []; }
+
+    if (statusFilter) requests = requests.filter(r => r.status === statusFilter);
+    if (typeFilter) requests = requests.filter(r => r.type === typeFilter);
+    requests.reverse();
+
+    res.json({ requests });
+});
+
+// ── Admin Player Actions API ──────────────────────────────────
+app.post('/api/admin/players/:id/warn', requireAdmin, (req, res) => {
+    const { reason } = req.body || {};
+    if (!reason) return res.status(400).json({ success: false, message: 'Podaj powód' });
+    const warnings = db.loadWarnings();
+    const username = req.params.id;
+    if (!warnings[username]) warnings[username] = [];
+    warnings[username].push({ reason, by: 'admin', time: Date.now() });
+    db.saveWarnings(warnings);
+    res.json({ success: true });
+});
+
+app.post('/api/admin/players/:id/role', requireAdmin, (req, res) => {
+    const { role } = req.body || {};
+    const username = req.params.id;
+    const player = db.getPlayer(username);
+    if (!player.roles) player.roles = [];
+    if (role) {
+        if (!player.roles.includes(role)) player.roles.push(role);
+    } else {
+        player.roles = [];
+    }
+    db.savePlayer(username, player);
+    res.json({ success: true });
+});
+
+app.post('/api/admin/players/:id/ban', requireAdmin, (req, res) => {
+    const username = req.params.id;
+    const bans = db.loadBans();
+    bans[username] = { reason: 'Banned by admin', by: 'admin', time: Date.now(), expires: null };
+    db.saveBans(bans);
+    res.json({ success: true });
+});
+
+app.post('/api/admin/players/:id/unban', requireAdmin, (req, res) => {
+    const username = req.params.id;
+    const bans = db.loadBans();
+    delete bans[username];
+    db.saveBans(bans);
+    res.json({ success: true });
+});
+
+app.post('/api/admin/players/:id/balance', requireAdmin, (req, res) => {
+    const { amount } = req.body || {};
+    const username = req.params.id;
+    const player = db.getPlayer(username);
+    player.coins = parseInt(amount) || 0;
+    db.savePlayer(username, player);
+    res.json({ success: true });
+});
+
+app.post('/api/admin/players/:id/gems', requireAdmin, (req, res) => {
+    const { item } = req.body || {};
+    if (!item) return res.status(400).json({ success: false, message: 'Brak przedmiotu' });
+    const username = req.params.id;
+    const player = db.getPlayer(username);
+    const qty = parseInt(item.qty) || 1;
+    player.gems = (player.gems || 0) + qty;
+    db.savePlayer(username, player);
+    res.json({ success: true });
+});
+
+// ── Admin System Message API ──────────────────────────────────
+app.post('/api/admin/system-message', requireAdmin, (req, res) => {
+    const { message } = req.body || {};
+    if (!message) return res.status(400).json({ success: false, message: 'Brak treści wiadomości' });
+    io.emit('systemMessage', message);
+    // Zapisz do logów
+    let logs = [];
+    try { logs = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'logs.json'), 'utf8')); } catch (e) { logs = []; }
+    logs.push({ type: 'system-message', description: `Wysłano: "${message}"`, adminUsername: 'admin', timestamp: Date.now() });
+    fs.writeFileSync(path.join(DATA_DIR, 'logs.json'), JSON.stringify(logs));
+    res.json({ success: true });
+});
+
 // ── Provably Fair Routes ──────────────────────────────────────
 pf.setupRoutes(app);
 

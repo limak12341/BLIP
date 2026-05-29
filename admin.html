@@ -304,7 +304,7 @@
               <button class="btn-ok" onclick="adminVerifyPF()" style="padding:10px 20px;font-size:.82rem">🔍 Zweryfikuj</button>
               <button class="seed-explorer-refresh" onclick="adminClearVerify()" style="font-size:.78rem">✕ Wyczyść</button>
             </div>
-            <div id="admin-verify-result" class="admin-verify-result"></div>
+            <div id="admin-verify-result-display" class="admin-verify-result"></div>
           </div>
         </div>
       </div>
@@ -361,9 +361,13 @@
     return '<span class="badge">' + escapeHtml(status) + '</span>';
   }
   async function apiJson(url, opts) {
-    const res = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...(opts||{}) });
+    const res = await fetch(url, {
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      ...(opts||{})
+    });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.message || 'Błąd API');
+    if (!res.ok) throw new Error(data.message || 'Błąd API (' + res.status + ')');
     return data;
   }
 
@@ -390,7 +394,7 @@
   // ── TAB SWITCHING: update for new tabs ──
   function switchTab(tab) {
     currentAdminTab = tab;
-    ['tab-requests','tab-players','tab-logs','tab-warnings','tab-system','tab-promo','tab-dashboard'].forEach(id => {
+    ['tab-requests','tab-players','tab-logs','tab-warnings','tab-system','tab-promo','tab-dashboard','tab-seeds'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = id === 'tab-' + tab ? 'block' : 'none';
     });
@@ -406,8 +410,11 @@
     else if (tab === 'promo') refreshPromoCodes(1);
     else if (tab === 'dashboard') refreshDashboard();
     else if (tab === 'seeds') refreshSeedExplorer();
+    else if (tab === 'gracze') refreshPlayers(1); // alias PL
+    else if (tab === 'logi') refreshLogs(1); // alias PL
   }
 
+  document.getElementById('tab-btn-dashboard').addEventListener('click', () => switchTab('dashboard'));
   document.getElementById('tab-btn-requests').addEventListener('click', () => switchTab('requests'));
   document.getElementById('tab-btn-players').addEventListener('click', () => switchTab('players'));
   document.getElementById('tab-btn-logs').addEventListener('click', () => switchTab('logs'));
@@ -1248,6 +1255,106 @@
       kpiIds.forEach(id => document.getElementById(id).textContent = '—');
       console.error('Dashboard error:', e);
     }
+  }
+
+  // ── SEED EXPLORER ──
+  async function refreshSeedExplorer() {
+    const tbody = document.getElementById('seed-table-body');
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:30px">Ładowanie...</td></tr>';
+    try {
+      const data = await apiJson('/api/provably-fair/seed-history?page=1&limit=20');
+      const seeds = data.seeds || [];
+      if (!seeds.length) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:30px">Brak historii seedów.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = seeds.map((s, i) => {
+        const status = s.revealed
+          ? '<span style="color:var(--green);font-size:.72rem;font-weight:700;padding:2px 8px;border-radius:6px;background:rgba(46,213,115,.1);border:1px solid rgba(46,213,115,.2)">✔ Ujawniony</span>'
+          : '<span style="color:var(--gold);font-size:.72rem;font-weight:700;padding:2px 8px;border-radius:6px;background:rgba(240,180,41,.1);border:1px solid rgba(240,180,41,.2)">⚡ Aktywny</span>';
+        const revealed = s.revealedAt
+          ? timeAgo(s.revealedAt)
+          : '<span style="color:var(--muted)">—</span>';
+        return `<tr>
+          <td>${i + 1}</td>
+          <td style="font-family:monospace;font-size:.72rem;word-break:break-all">${escapeHtml(s.hash).substring(0, 20)}...</td>
+          <td style="font-size:.78rem">—</td>
+          <td style="font-size:.78rem;color:var(--muted)">—</td>
+          <td>${status}</td>
+          <td style="font-size:.78rem">${revealed}</td>
+        </tr>`;
+      }).join('');
+    } catch (e) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--red);padding:30px">Błąd: ' + escapeHtml(e.message) + '</td></tr>';
+    }
+  }
+
+  // ── PF WERYFIKACJA ──
+  async function adminVerifyPF() {
+    const serverSeed = document.getElementById('admin-verify-server-seed').value.trim();
+    const clientSeed = document.getElementById('admin-verify-client-seed').value.trim();
+    const nonce = parseInt(document.getElementById('admin-verify-nonce').value) || 0;
+    const expectedResult = document.getElementById('admin-verify-result').value;
+    const resultEl = document.getElementById('admin-verify-result-display');
+
+    if (!serverSeed || !clientSeed) {
+      resultEl.innerHTML = '<div style="color:var(--red);font-weight:700">❌ Wypełnij Server Seed i Client Seed!</div>';
+      return;
+    }
+
+    resultEl.innerHTML = '<div style="color:var(--muted)">🔄 Weryfikacja...</div>';
+
+    try {
+      const data = await apiJson('/api/provably-fair/verify', {
+        method: 'POST',
+        body: JSON.stringify({ serverSeed, clientSeed, nonce })
+      });
+
+      if (!data.success) {
+        resultEl.innerHTML = '<div style="color:var(--red);font-weight:700">❌ ' + escapeHtml(data.message) + '</div>';
+        return;
+      }
+
+      const isHeads = data.computedResult < 500000;
+      const resultText = isHeads ? 'ORZEŁ (heads)' : 'RESZKA (tails)';
+
+      let matchHtml = '';
+      if (expectedResult) {
+        const expectedHeads = expectedResult === 'heads';
+        const match = isHeads === expectedHeads;
+        matchHtml = match
+          ? '<div style="color:var(--green);font-size:1.1rem;font-weight:900;margin-top:8px">✅ ZGADZA SIĘ! Wynik jest poprawny.</div>'
+          : '<div style="color:var(--red);font-size:1.1rem;font-weight:900;margin-top:8px">❌ NIE ZGADZA SIĘ! Wynik jest inny.</div>';
+      }
+
+      resultEl.innerHTML = `
+        <div style="background:var(--surf2);border-radius:10px;padding:14px;margin-top:10px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:.82rem">
+            <div style="color:var(--muted)">Hash seeda:</div>
+            <div style="font-family:monospace;font-size:.7rem;word-break:break-all;font-weight:600;color:var(--gold)">${escapeHtml(data.serverSeedHash)}</div>
+            <div style="color:var(--muted)">Client Seed:</div>
+            <div style="font-weight:600">${escapeHtml(data.clientSeed)}</div>
+            <div style="color:var(--muted)">Nonce:</div>
+            <div style="font-weight:600">${data.nonce}</div>
+            <div style="color:var(--muted)">Wynik liczbowy:</div>
+            <div style="font-family:\'Orbitron\',monospace;font-weight:900;color:#a78bfa">${data.computedResult}</div>
+            <div style="color:var(--muted)">Wynik:</div>
+            <div style="font-weight:900;font-size:1rem;color:${isHeads ? 'var(--gold)' : 'var(--blue)'}">${resultText}</div>
+          </div>
+          ${matchHtml}
+        </div>
+      `;
+    } catch (e) {
+      resultEl.innerHTML = '<div style="color:var(--red);font-weight:700">❌ Błąd: ' + escapeHtml(e.message) + '</div>';
+    }
+  }
+
+  function adminClearVerify() {
+    document.getElementById('admin-verify-server-seed').value = '';
+    document.getElementById('admin-verify-client-seed').value = '';
+    document.getElementById('admin-verify-nonce').value = '0';
+    document.getElementById('admin-verify-result').value = '';
+    document.getElementById('admin-verify-result-display').innerHTML = '';
   }
 </script>
 
