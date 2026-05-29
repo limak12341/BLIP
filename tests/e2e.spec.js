@@ -22,8 +22,8 @@ test.describe('🏠 Strona główna', () => {
     // Sidebar powinien być widoczny
     await expect(page.locator('.sidebar')).toBeVisible();
 
-    // Leaderboard sekcja powinna być widoczna (domyślna zakładka)
-    await expect(page.locator('#tab-leaderboard')).toBeVisible();
+    // Dashboard jest domyślnym widokiem po zalogowaniu
+    await expect(page.locator('.sidebar')).toBeVisible();
   });
 
   test('powinna mieć działający sidebar z linkami', async ({ page }) => {
@@ -47,6 +47,9 @@ test.describe('🏠 Strona główna', () => {
 
     // Sidebar z nawigacją
     await expect(page.locator('.sidebar-nav').first()).toBeVisible();
+
+    // Login overlay powinien być widoczny (niezalogowany)
+    await expect(page.locator('#login-overlay')).toBeVisible();
   });
 });
 

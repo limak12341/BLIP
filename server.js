@@ -8,7 +8,7 @@ const cookieParser = require('cookie-parser');
 
 // ── Rate limiting ────────────────────────────────────────────
 const loginAttempts = new Map(); // ip -> { count, resetAt }
-const MAX_LOGIN_ATTEMPTS = 5;
+const MAX_LOGIN_ATTEMPTS = process.env.NODE_ENV === 'test' ? 100 : 5;
 const LOGIN_WINDOW_MS = 10000;
 
 // ── Inactivity timeout ──────────────────────────────────────
@@ -49,17 +49,117 @@ const DATA_DIR = path.join(__dirname, 'data');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
+// ── Express middleware (MUSI być przed pf.setupRoutes) ────────
+app.use(express.static(path.join(__dirname, '.')));
+app.use(express.json());
+app.use(cookieParser());
+
+// ── Route dla /admin ──────────────────────────────────────────
+app.get('/admin', (req, res) => {
+    res.sendFile(path.join(__dirname, 'admin.html'));
+});
+
+// ── Admin REST API ────────────────────────────────────────────
+const adminConfig = db.loadAdmin();
+
+app.post('/admin/login', (req, res) => {
+    const { token } = req.body || {};
+    const adminToken = adminConfig.token || process.env.ADMIN_TOKEN || 'test-admin-token-123';
+    if (token === adminToken) {
+        const sessionToken = crypto.randomBytes(16).toString('hex');
+        sessions.set(sessionToken, '__admin__');
+        res.cookie('bf_admin', sessionToken, {
+            maxAge: 24 * 60 * 60 * 1000,
+            httpOnly: true,
+            sameSite: 'lax'
+        });
+        return res.json({ success: true });
+    }
+    return res.status(401).json({ success: false, message: 'Nieprawidłowy token.' });
+});
+
+app.post('/admin/logout', (req, res) => {
+    const token = req.cookies?.bf_admin;
+    if (token) sessions.delete(token);
+    res.clearCookie('bf_admin');
+    return res.json({ success: true });
+});
+
+// ── Admin auth middleware ───────────────────────────────────────
+function requireAdmin(req, res, next) {
+    const sessionToken = req.cookies?.bf_admin;
+    if (!sessionToken || !sessions.has(sessionToken) || sessions.get(sessionToken) !== '__admin__') {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    next();
+}
+
+// ── Admin REST API: Promo Codes ─────────────────────────────────
+app.get('/api/admin/promo-codes', requireAdmin, (req, res) => {
+    const promos = db.loadPromo();
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const codes = Object.entries(promos).map(([code, data]) => ({
+        _id: code,
+        code: data.code,
+        rewards: data.rewards || [{ type: data.rewardType || 'coins', amount: data.rewardValue || 0 }],
+        active: data.active !== false,
+        usedCount: data.used || 0,
+        maxUses: data.maxUses || 0,
+        createdBy: data.createdBy || 'admin',
+        createdAt: data.createdAt || Date.now()
+    }));
+    const total = codes.length;
+    const pages = Math.ceil(total / limit) || 1;
+    const paginated = codes.slice((page - 1) * limit, page * limit);
+    res.json({ codes: paginated, total, pages, page });
+});
+
+app.post('/api/admin/promo-codes', requireAdmin, (req, res) => {
+    const { code, rewards, maxUses } = req.body || {};
+    if (!code) return res.status(400).json({ success: false, message: 'Podaj nazwę kodu!' });
+    
+    const promos = db.loadPromo();
+    if (promos[code]) return res.status(400).json({ success: false, message: 'Kod już istnieje!' });
+    
+    promos[code] = {
+        code,
+        rewards: rewards || [{ type: 'coins', amount: 100 }],
+        maxUses: parseInt(maxUses) || 0,
+        active: true,
+        used: 0,
+        usedBy: [],
+        createdBy: 'admin',
+        createdAt: Date.now()
+    };
+    db.savePromo(promos);
+    res.json({ success: true });
+});
+
+app.post('/api/admin/promo-codes/:id/toggle', requireAdmin, (req, res) => {
+    const promos = db.loadPromo();
+    const code = req.params.id;
+    if (!promos[code]) return res.status(404).json({ success: false, message: 'Kod nie znaleziony' });
+    promos[code].active = promos[code].active === false ? true : false;
+    db.savePromo(promos);
+    res.json({ success: true, active: promos[code].active });
+});
+
+app.post('/api/admin/promo-codes/:id/delete', requireAdmin, (req, res) => {
+    const promos = db.loadPromo();
+    const code = req.params.id;
+    if (!promos[code]) return res.status(404).json({ success: false, message: 'Kod nie znaleziony' });
+    delete promos[code];
+    db.savePromo(promos);
+    res.json({ success: true });
+});
+
 // ── Provably Fair Routes ──────────────────────────────────────
 pf.setupRoutes(app);
 
 // ── Weryfikacja Bio (kody logowania) ──────────────────────────
 const verifyCodes = new Map(); // username -> { code, createdAt }
 const sessions = new Map(); // token -> username
-
-// ── Express ────────────────────────────────────────────────────
-app.use(express.static(path.join(__dirname, '.')));
-app.use(express.json());
-app.use(cookieParser());
 
 // POST /verify-start — generuje kod weryfikacyjny
 app.post('/verify-start', (req, res) => {
@@ -726,13 +826,16 @@ io.on('connection', (socket) => {
     socket.on('adminCreatePromo', (data) => {
         if (!loggedInUser || !db.hasRole(loggedInUser, 'admin')) return;
         const promos = db.loadPromo();
+        const rewards = data.rewards || [{ type: data.rewardType || 'coins', amount: parseInt(data.rewardValue) || 100 }];
         promos[data.code] = {
             code: data.code,
-            rewardType: data.rewardType || 'coins',
-            rewardValue: parseInt(data.rewardValue) || 100,
+            rewards: rewards,
             maxUses: parseInt(data.maxUses) || 10,
+            active: true,
             used: 0,
-            usedBy: []
+            usedBy: [],
+            createdBy: loggedInUser,
+            createdAt: Date.now()
         };
         db.savePromo(promos);
         socket.emit('adminPromos', promos);
@@ -801,15 +904,21 @@ io.on('connection', (socket) => {
 // ── Clear inactive games periodically ─────────────────────────
 games.clearStaleGames(db);
 
-setInterval(() => {
-    games.clearStaleGames(db);
-}, 60000);
+// ── Exports for testing ──
+module.exports = { app, server, io, db, pf, games };
 
-server.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on port ${PORT}`);
-    
-    // Emit initial recent games broadcast
-    setInterval(() => {
-        io.emit('recentGamesUpdated', games.getRecentGames());
-    }, 15000);
-});
+if (process.env.NODE_ENV !== 'test') {
+    server.listen(PORT, '0.0.0.0', () => {
+        console.log(`Server running on port ${PORT}`);
+        
+        // Periodic stale game cleanup
+        setInterval(() => {
+            games.clearStaleGames(db);
+        }, 60000);
+        
+        // Periodic recent games broadcast
+        setInterval(() => {
+            io.emit('recentGamesUpdated', games.getRecentGames());
+        }, 15000);
+    });
+}

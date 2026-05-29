@@ -10,6 +10,15 @@
     "test:watch": "jest --watch --forceExit",
     "test:e2e": "playwright test --config=playwright.config.js"
   },
+  "jest": {
+    "testMatch": [
+      "**/tests/**/*.test.js"
+    ],
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "e2e.spec.js"
+    ]
+  },
   "engines": {
     "node": ">=18"
   },

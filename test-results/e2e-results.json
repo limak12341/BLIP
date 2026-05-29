@@ -57,7 +57,7 @@
     "workers": 1,
     "webServer": {
       "command": "node server.js",
-      "port": 5000,
+      "port": 10000,
       "reuseExistingServer": true,
       "timeout": 15000,
       "env": {
@@ -95,12 +95,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 3443,
+                      "duration": 1211,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-27T19:54:42.165Z",
+                      "startTime": "2026-05-29T17:43:33.665Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -129,12 +129,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1028,
+                      "duration": 1044,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-27T19:54:45.760Z",
+                      "startTime": "2026-05-29T17:43:34.963Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -163,12 +163,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1126,
+                      "duration": 1089,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-27T19:54:46.811Z",
+                      "startTime": "2026-05-29T17:43:36.024Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -186,7 +186,7 @@
         {
           "title": "🔐 Admin panel - logowanie",
           "file": "e2e.spec.js",
-          "line": 53,
+          "line": 56,
           "column": 6,
           "specs": [
             {
@@ -205,12 +205,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 970,
+                      "duration": 776,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-27T19:54:47.950Z",
+                      "startTime": "2026-05-29T17:43:37.134Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -220,7 +220,7 @@
               ],
               "id": "616cc0f313d283bb66d2-8bfeb1831c0b00fe3639",
               "file": "e2e.spec.js",
-              "line": 54,
+              "line": 57,
               "column": 3
             },
             {
@@ -239,12 +239,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1011,
+                      "duration": 896,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-27T19:54:48.931Z",
+                      "startTime": "2026-05-29T17:43:37.921Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -254,7 +254,7 @@
               ],
               "id": "616cc0f313d283bb66d2-14883a3b32196ae439cf",
               "file": "e2e.spec.js",
-              "line": 63,
+              "line": 66,
               "column": 3
             },
             {
@@ -273,12 +273,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 999,
+                      "duration": 915,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-27T19:54:49.954Z",
+                      "startTime": "2026-05-29T17:43:38.827Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -288,7 +288,7 @@
               ],
               "id": "616cc0f313d283bb66d2-1f861bb6e7c1bcde23dd",
               "file": "e2e.spec.js",
-              "line": 72,
+              "line": 75,
               "column": 3
             }
           ]
@@ -296,7 +296,7 @@
         {
           "title": "📋 Admin panel - zakładki",
           "file": "e2e.spec.js",
-          "line": 81,
+          "line": 84,
           "column": 6,
           "specs": [
             {
@@ -315,12 +315,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1058,
+                      "duration": 911,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-27T19:54:50.966Z",
+                      "startTime": "2026-05-29T17:43:39.754Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -330,7 +330,7 @@
               ],
               "id": "616cc0f313d283bb66d2-4796735ac1e9384c2137",
               "file": "e2e.spec.js",
-              "line": 82,
+              "line": 85,
               "column": 3
             },
             {
@@ -349,12 +349,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1179,
+                      "duration": 1079,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-27T19:54:52.037Z",
+                      "startTime": "2026-05-29T17:43:40.675Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -364,7 +364,7 @@
               ],
               "id": "616cc0f313d283bb66d2-600ab437d44b2a3c0567",
               "file": "e2e.spec.js",
-              "line": 96,
+              "line": 99,
               "column": 3
             }
           ]
@@ -372,7 +372,7 @@
         {
           "title": "🎁 Admin panel - zarządzanie promokodami",
           "file": "e2e.spec.js",
-          "line": 117,
+          "line": 120,
           "column": 6,
           "specs": [
             {
@@ -391,12 +391,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1416,
+                      "duration": 1271,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-27T19:54:53.227Z",
+                      "startTime": "2026-05-29T17:43:41.765Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -406,7 +406,7 @@
               ],
               "id": "616cc0f313d283bb66d2-fa7db2bb5fdfa202e8ac",
               "file": "e2e.spec.js",
-              "line": 118,
+              "line": 121,
               "column": 3
             },
             {
@@ -425,12 +425,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 2205,
+                      "duration": 2057,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-27T19:54:54.654Z",
+                      "startTime": "2026-05-29T17:43:43.046Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -440,7 +440,7 @@
               ],
               "id": "616cc0f313d283bb66d2-8cb214d00e18c7e284b0",
               "file": "e2e.spec.js",
-              "line": 133,
+              "line": 136,
               "column": 3
             },
             {
@@ -459,12 +459,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 2519,
+                      "duration": 2310,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-27T19:54:56.870Z",
+                      "startTime": "2026-05-29T17:43:45.117Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -474,7 +474,7 @@
               ],
               "id": "616cc0f313d283bb66d2-4a9fbcc5a880a7f67e47",
               "file": "e2e.spec.js",
-              "line": 154,
+              "line": 157,
               "column": 3
             },
             {
@@ -493,12 +493,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 2496,
+                      "duration": 2324,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-27T19:54:59.401Z",
+                      "startTime": "2026-05-29T17:43:47.437Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -508,7 +508,7 @@
               ],
               "id": "616cc0f313d283bb66d2-53e8602c96294026a26e",
               "file": "e2e.spec.js",
-              "line": 177,
+              "line": 180,
               "column": 3
             },
             {
@@ -527,12 +527,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 2224,
+                      "duration": 2075,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-27T19:55:01.908Z",
+                      "startTime": "2026-05-29T17:43:49.770Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -542,7 +542,7 @@
               ],
               "id": "616cc0f313d283bb66d2-c9b785f9c71cea3e2aca",
               "file": "e2e.spec.js",
-              "line": 204,
+              "line": 207,
               "column": 3
             },
             {
@@ -561,12 +561,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 2812,
+                      "duration": 2583,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-27T19:55:04.143Z",
+                      "startTime": "2026-05-29T17:43:51.855Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -576,7 +576,7 @@
               ],
               "id": "616cc0f313d283bb66d2-065143319e8ae6c8cb96",
               "file": "e2e.spec.js",
-              "line": 221,
+              "line": 224,
               "column": 3
             },
             {
@@ -595,12 +595,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1716,
+                      "duration": 1510,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-27T19:55:06.967Z",
+                      "startTime": "2026-05-29T17:43:54.446Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -610,7 +610,7 @@
               ],
               "id": "616cc0f313d283bb66d2-ac612713e7c29fd91697",
               "file": "e2e.spec.js",
-              "line": 242,
+              "line": 245,
               "column": 3
             }
           ]
@@ -618,7 +618,7 @@
         {
           "title": "🔄 Admin panel - lista graczy",
           "file": "e2e.spec.js",
-          "line": 253,
+          "line": 256,
           "column": 6,
           "specs": [
             {
@@ -637,12 +637,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1520,
+                      "duration": 1610,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-27T19:55:08.701Z",
+                      "startTime": "2026-05-29T17:43:55.965Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -652,7 +652,7 @@
               ],
               "id": "616cc0f313d283bb66d2-f71e0076cdcf13a4780b",
               "file": "e2e.spec.js",
-              "line": 254,
+              "line": 257,
               "column": 3
             }
           ]
@@ -660,7 +660,7 @@
         {
           "title": "📱 UI - ogólne elementy",
           "file": "e2e.spec.js",
-          "line": 266,
+          "line": 269,
           "column": 6,
           "specs": [
             {
@@ -679,12 +679,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1550,
+                      "duration": 1583,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-27T19:55:10.230Z",
+                      "startTime": "2026-05-29T17:43:57.586Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -694,7 +694,7 @@
               ],
               "id": "616cc0f313d283bb66d2-adb359e30b13c790e2e7",
               "file": "e2e.spec.js",
-              "line": 267,
+              "line": 270,
               "column": 3
             },
             {
@@ -713,12 +713,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 995,
+                      "duration": 1028,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-27T19:55:11.792Z",
+                      "startTime": "2026-05-29T17:43:59.181Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -728,7 +728,7 @@
               ],
               "id": "616cc0f313d283bb66d2-02b423538a16fcaf508e",
               "file": "e2e.spec.js",
-              "line": 292,
+              "line": 295,
               "column": 3
             }
           ]
@@ -736,7 +736,7 @@
         {
           "title": "🚪 Admin panel - wylogowanie",
           "file": "e2e.spec.js",
-          "line": 303,
+          "line": 306,
           "column": 6,
           "specs": [
             {
@@ -755,12 +755,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1580,
+                      "duration": 1484,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-27T19:55:12.798Z",
+                      "startTime": "2026-05-29T17:44:00.225Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -770,7 +770,7 @@
               ],
               "id": "616cc0f313d283bb66d2-bde0b484c68740e5b1c2",
               "file": "e2e.spec.js",
-              "line": 304,
+              "line": 307,
               "column": 3
             }
           ]
@@ -780,8 +780,8 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2026-05-27T19:54:40.654Z",
-    "duration": 33980.292,
+    "startTime": "2026-05-29T17:43:32.797Z",
+    "duration": 29069.708,
     "expected": 19,
     "skipped": 0,
     "unexpected": 0,

@@ -1,0 +1,83 @@
+{
+  "E2ECOINNTWY": {
+    "code": "E2ECOINNTWY",
+    "rewards": [
+      {
+        "type": "coins",
+        "amount": 500
+      }
+    ],
+    "maxUses": 10,
+    "active": false,
+    "used": 0,
+    "usedBy": [],
+    "createdBy": "admin",
+    "createdAt": 1780076624496
+  },
+  "E2EGEMNVQ6": {
+    "code": "E2EGEMNVQ6",
+    "rewards": [
+      {
+        "type": "gems",
+        "name": "Gem 💎 10M",
+        "qty": 3
+      }
+    ],
+    "maxUses": 5,
+    "active": true,
+    "used": 0,
+    "usedBy": [],
+    "createdBy": "admin",
+    "createdAt": 1780076626845
+  },
+  "E2ECOMBONXIJ": {
+    "code": "E2ECOMBONXIJ",
+    "rewards": [
+      {
+        "type": "coins",
+        "amount": 1000
+      },
+      {
+        "type": "gems",
+        "name": "Gem 💎 1M",
+        "qty": 5
+      }
+    ],
+    "maxUses": 3,
+    "active": true,
+    "used": 0,
+    "usedBy": [],
+    "createdBy": "admin",
+    "createdAt": 1780076629162
+  },
+  "E2ELISTNZ3T": {
+    "code": "E2ELISTNZ3T",
+    "rewards": [
+      {
+        "type": "coins",
+        "amount": 100
+      }
+    ],
+    "maxUses": 10,
+    "active": true,
+    "used": 0,
+    "usedBy": [],
+    "createdBy": "admin",
+    "createdAt": 1780076631250
+  },
+  "E2ETOGGO0PW": {
+    "code": "E2ETOGGO0PW",
+    "rewards": [
+      {
+        "type": "coins",
+        "amount": 100
+      }
+    ],
+    "maxUses": 10,
+    "active": true,
+    "used": 0,
+    "usedBy": [],
+    "createdBy": "admin",
+    "createdAt": 1780076633296
+  }
+}

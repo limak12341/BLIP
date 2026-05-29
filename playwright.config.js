@@ -13,7 +13,7 @@ module.exports = defineConfig({
     ['json', { outputFile: 'test-results/e2e-results.json' }],
   ],
   use: {
-    baseURL: 'http://localhost:5000',
+    baseURL: 'http://localhost:10000',
     headless: true,
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -27,7 +27,7 @@ module.exports = defineConfig({
   ],
   webServer: {
     command: 'node server.js',
-    port: 5000,
+    port: 10000,
     reuseExistingServer: true,
     timeout: 15000,
     env: {

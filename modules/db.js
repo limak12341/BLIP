@@ -118,17 +118,32 @@ function applyPromoBonus(username, code) {
     const players = loadData();
     if (!players[username]) players[username] = getPlayer(username);
     const player = players[username];
-    if (promo.rewardType === 'coins') {
-        player.coins += promo.rewardValue;
-    } else if (promo.rewardType === 'gems') {
-        player.gems += promo.rewardValue;
+    
+    // Obsługa zarówno starego (rewardType/rewardValue) jak i nowego (rewards array) formatu
+    const rewards = promo.rewards || [{ type: promo.rewardType || 'coins', amount: promo.rewardValue || 0 }];
+    let appliedValue = 0;
+    let appliedType = 'coins';
+    
+    for (const reward of rewards) {
+        if (reward.type === 'coins') {
+            const amount = reward.amount || 0;
+            player.coins += amount;
+            appliedValue += amount;
+            appliedType = 'coins';
+        } else if (reward.type === 'gems') {
+            const qty = reward.qty || 1;
+            player.gems += qty;
+            appliedValue += qty;
+            appliedType = 'gems';
+        }
     }
+    
     promo.used = (promo.used || 0) + 1;
     if (!promo.usedBy) promo.usedBy = [];
     promo.usedBy.push(username);
     saveData(players);
     savePromo(promos);
-    return { success: true, type: promo.rewardType, value: promo.rewardValue };
+    return { success: true, type: appliedType, value: appliedValue };
 }
 
 // ── Admin ──

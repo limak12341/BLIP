@@ -2,306 +2,425 @@ const request = require('supertest');
 const path = require('path');
 const fs = require('fs');
 
-// Ustaw NODE_ENV na 'test' przed załadowaniem serwera
+// Set test environment
 process.env.NODE_ENV = 'test';
-process.env.ADMIN_TOKEN = 'test-token-123';
-process.env.SESSION_SECRET = 'test-secret-xyz';
 
-const { app, normalizeUsername, fmt, guessCategory, newId, sanitizeItems, GEMS, GEM_MERGE_RECIPES } = require('../server');
+const { app, db, pf, games } = require('../server');
 
-// Usuń tymczasowe bazy danych po testach
-afterAll(() => {
-    const dbFiles = [
-        'baza_graczy.db', 'baza_historii.db', 'baza_lobby.db',
-        'baza_inventory.db', 'baza_requests.db', 'baza_chat.db',
-        'baza_logow.db', 'baza_ostrzezen.db', 'baza_escrow.db',
-        'promocodes.db'
-    ];
-    dbFiles.forEach(f => {
-        const p = path.join(__dirname, '..', f);
-        if (fs.existsSync(p)) {
-            try { fs.unlinkSync(p); } catch {}
-        }
-    });
-});
+// ── TESTY FUNKCJI POMOCNICZYCH (db) ────────────────────────────
 
-// ── TESTY FUNKCJI POMOCNICZYCH ──────────────────────────────────
-
-describe('normalizeUsername()', () => {
-    test('zwraca pusty string dla undefined/null', () => {
-        expect(normalizeUsername(undefined)).toBe('');
-        expect(normalizeUsername(null)).toBe('');
-    });
-
-    test('trimuje i konwertuje na string', () => {
-        expect(normalizeUsername('  Hello  ')).toBe('Hello');
-        expect(normalizeUsername('Test')).toBe('Test');
-    });
-
-    test('obsługuje liczby', () => {
-        expect(normalizeUsername(123)).toBe('123');
-    });
-});
-
-describe('fmt()', () => {
+describe('db.fmt()', () => {
     test('formatuje małe liczby', () => {
-        expect(fmt(0)).toBe('0');
-        expect(fmt(500)).toBe('500');
-        expect(fmt(999)).toBe('999');
+        expect(db.fmt(0)).toBe('0');
+        expect(db.fmt(500)).toBe('500');
+        expect(db.fmt(999)).toBe('999');
     });
 
     test('formatuje tysiące (K)', () => {
-        expect(fmt(1000)).toBe('1.0K');
-        expect(fmt(1500)).toBe('1.5K');
-        expect(fmt(10000)).toBe('10K');
-        expect(fmt(999999)).toBe('1000K');
+        expect(db.fmt(1000)).toBe('1.0K');
+        expect(db.fmt(1500)).toBe('1.5K');
+        expect(db.fmt(10000)).toBe('10K');
     });
 
     test('formatuje miliony (M)', () => {
-        expect(fmt(1_000_000)).toBe('1.0M');
-        expect(fmt(2_500_000)).toBe('2.5M');
-        expect(fmt(10_000_000)).toBe('10M');
+        expect(db.fmt(1_000_000)).toBe('1.0M');
+        expect(db.fmt(2_500_000)).toBe('2.5M');
     });
 
     test('formatuje miliardy (B)', () => {
-        expect(fmt(1_000_000_000)).toBe('1.0B');
-        expect(fmt(50_000_000_000)).toBe('50B');
+        expect(db.fmt(1_000_000_000)).toBe('1.0B');
     });
 });
 
-describe('guessCategory()', () => {
-    test('rozpoznaje gemy', () => {
-        expect(guessCategory('Gem 💎 1M')).toBe('Gem');
-        expect(guessCategory('Gem 💎 500M')).toBe('Gem');
+describe('db.escapeHtml()', () => {
+    test('escapeuje HTML special chars', () => {
+        expect(db.escapeHtml('<script>alert("xss")</script>'))
+            .toBe('&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;');
+        expect(db.escapeHtml("it's & nice")).toBe('it&#39;s &amp; nice');
     });
 
-    test('rozpoznaje Titanic', () => {
-        expect(guessCategory('Titanic Dragon')).toBe('Titanic');
+    test('zwraca pusty string dla null/undefined', () => {
+        expect(db.escapeHtml(null)).toBe('');
+        expect(db.escapeHtml(undefined)).toBe('');
     });
 
-    test('rozpoznaje Gargantuan', () => {
-        expect(guessCategory('Gargantuan Cat')).toBe('Gargantuan');
-    });
-
-    test('rozpoznaje Huge', () => {
-        expect(guessCategory('Huge Dog')).toBe('Huge');
-    });
-
-    test('zwraca Unknown dla nieznanych', () => {
-        expect(guessCategory('Something Random')).toBe('Unknown');
-        expect(guessCategory('')).toBe('Unknown');
-        expect(guessCategory(null)).toBe('Unknown');
+    test('zwraca niezmieniony tekst bez znaków specialnych', () => {
+        expect(db.escapeHtml('Hello World')).toBe('Hello World');
     });
 });
 
-describe('newId()', () => {
-    test('generuje ID z prefiksem', () => {
-        const id = newId('test');
-        expect(id).toMatch(/^test_\d+_[a-z0-9]{6}$/);
+describe('db.generateClientSeed()', () => {
+    test('generuje 32-znakowy hex string', () => {
+        const seed = db.generateClientSeed();
+        expect(seed).toMatch(/^[a-f0-9]{32}$/);
     });
 
-    test('generuje unikalne ID', () => {
-        const ids = new Set();
+    test('generuje unikalne seed-y', () => {
+        const seeds = new Set();
         for (let i = 0; i < 100; i++) {
-            ids.add(newId('u'));
+            seeds.add(db.generateClientSeed());
         }
-        expect(ids.size).toBe(100);
+        expect(seeds.size).toBe(100);
     });
 });
 
-describe('sanitizeItems()', () => {
-    test('zwraca pustą tablicę dla nie-array', () => {
-        expect(sanitizeItems(null)).toEqual([]);
-        expect(sanitizeItems(undefined)).toEqual([]);
-        expect(sanitizeItems('test')).toEqual([]);
-    });
-
-    test('sanitizuje itemy', () => {
-        const items = [
-            { name: '  Test Item  ', qty: '5', rap: '1000' },
-            { name: 'Gem 💎 1M', qty: 2, rap: 1_000_000 }
-        ];
-        const result = sanitizeItems(items);
-        expect(result).toHaveLength(2);
-        expect(result[0].name).toBe('Test Item');
-        expect(result[0].qty).toBe(5);
-        expect(result[0].rap).toBe(1000);
-        expect(result[1].category).toBe('Gem');
-    });
-
-    test('filtruje puste nazwy', () => {
-        const items = [
-            { name: '', qty: 1 },
-            { name: 'Valid', qty: 1 }
-        ];
-        expect(sanitizeItems(items)).toHaveLength(1);
-    });
-
-    test('obcina zbyt długie nazwy', () => {
-        const items = [{ name: 'A'.repeat(100), qty: 1 }];
-        expect(sanitizeItems(items)[0].name.length).toBe(80);
-    });
-
-    test('ogranicza qty do zakresu 1-9999', () => {
-        expect(sanitizeItems([{ name: 'Test', qty: 0 }])[0].qty).toBe(1);
-        expect(sanitizeItems([{ name: 'Test', qty: 99999, rap: 0 }])[0].qty).toBe(9999);
+describe('db.getPlayer()', () => {
+    test('tworzy nowego gracza z domyślnymi wartościami', () => {
+        const player = db.getPlayer('TestPlayer_' + Date.now());
+        expect(player.coins).toBe(500);
+        expect(player.gems).toBe(0);
+        expect(player.username).toBeTruthy();
+        expect(player.clientSeed).toMatch(/^[a-f0-9]{32}$/);
+        expect(player.nonce).toBe(0);
+        expect(Array.isArray(player.roles)).toBe(true);
     });
 });
 
-// ── TESTY KONFIGURACJI ──────────────────────────────────────────
+describe('db.hasRole()', () => {
+    test('zwraca false dla gracza bez roli', () => {
+        const name = 'RoleTest_' + Date.now();
+        expect(db.hasRole(name, 'admin')).toBe(false);
+    });
+});
 
-describe('GEMS', () => {
-    test('zawiera 6 gemów', () => {
-        expect(GEMS).toHaveLength(6);
+describe('db.isBanned()', () => {
+    test('zwraca null dla niebanowanego gracza', () => {
+        expect(db.isBanned('NonexistentUser_' + Date.now())).toBeNull();
+    });
+});
+
+// ── TESTY GAMES MODULE ─────────────────────────────────────────
+
+describe('games.PETS', () => {
+    test('zawiera oczekiwane zwierzaki', () => {
+        expect(games.PETS.common_egg).toBeTruthy();
+        expect(games.PETS.rare_egg).toBeTruthy();
+        expect(games.PETS.epic_egg).toBeTruthy();
+        expect(games.PETS.legendary_egg).toBeTruthy();
+        expect(games.PETS.baby_dragon).toBeTruthy();
+        expect(games.PETS.phoenix).toBeTruthy();
     });
 
-    test('każdy gem ma nazwę i wartość', () => {
-        GEMS.forEach(gem => {
-            expect(gem.name).toBeTruthy();
+    test('każdy pet ma bonus > 1', () => {
+        Object.values(games.PETS).forEach(pet => {
+            expect(pet.bonus).toBeGreaterThan(1);
+        });
+    });
+});
+
+describe('games.WAGER_ITEMS', () => {
+    test('zawiera 4 gemy', () => {
+        expect(Object.keys(games.WAGER_ITEMS)).toHaveLength(4);
+    });
+
+    test('każdy gem ma wartość > 0', () => {
+        Object.values(games.WAGER_ITEMS).forEach(gem => {
             expect(gem.value).toBeGreaterThan(0);
         });
     });
+});
 
-    test('gemy są posortowane rosnąco po wartości', () => {
-        for (let i = 1; i < GEMS.length; i++) {
-            expect(GEMS[i].value).toBeGreaterThan(GEMS[i - 1].value);
-        }
+describe('games.getPetBonus()', () => {
+    test('zwraca 1.0 dla gracza bez peta', () => {
+        const name = 'NoPet_' + Date.now();
+        expect(games.getPetBonus(name, db)).toBe(1.0);
     });
 });
 
-describe('GEM_MERGE_RECIPES', () => {
-    test('zawiera 5 przepisów', () => {
-        expect(GEM_MERGE_RECIPES).toHaveLength(5);
+// ── TESTY PROVIDABLY FAIR ──────────────────────────────────────
+
+describe('pf.computeFairResult()', () => {
+    test('zwraca spójny wynik dla tych samych parametrów', () => {
+        const r1 = pf.computeFairResult('seed123', 'client456', 1);
+        const r2 = pf.computeFairResult('seed123', 'client456', 1);
+        expect(r1.result).toBe(r2.result);
+        expect(r1.hash).toBe(r2.hash);
     });
 
-    test('każdy przepis ma pola in/inQty/out/outQty', () => {
-        GEM_MERGE_RECIPES.forEach(r => {
-            expect(r.in).toBeTruthy();
-            expect(r.inQty).toBeGreaterThan(0);
-            expect(r.out).toBeTruthy();
-            expect(r.outQty).toBeGreaterThan(0);
-        });
+    test('zwraca różny wynik dla różnych nonce', () => {
+        const r1 = pf.computeFairResult('seed', 'client', 1);
+        const r2 = pf.computeFairResult('seed', 'client', 2);
+        expect(r1.result).not.toBe(r2.result);
+    });
+
+    test('wynik jest w zakresie 0-99.99', () => {
+        const r = pf.computeFairResult('seed', 'client', 1);
+        expect(r.result).toBeGreaterThanOrEqual(0);
+        expect(r.result).toBeLessThanOrEqual(99.99);
+    });
+
+    test('hash to 64-znakowy hex', () => {
+        const r = pf.computeFairResult('seed', 'client', 1);
+        expect(r.hash).toMatch(/^[a-f0-9]{64}$/);
     });
 });
 
-// ── TESTY ENDPOINTÓW (podstawowe) ───────────────────────────────
+describe('pf.getServerSeedHash()', () => {
+    test('zwraca hash SHA-256', () => {
+        const hash = pf.getServerSeedHash();
+        expect(hash).toMatch(/^[a-f0-9]{64}$/);
+    });
+});
+
+describe('pf.getSeedInfo()', () => {
+    test('zwraca informacje o seedach', () => {
+        const info = pf.getSeedInfo();
+        expect(info).toHaveProperty('currentIndex');
+        expect(info).toHaveProperty('totalSeeds');
+        expect(info).toHaveProperty('serverSeedHash');
+        expect(info.totalSeeds).toBeGreaterThan(0);
+    });
+});
+
+// ── TESTY ENDPOINTÓW HTTP ──────────────────────────────────────
 
 describe('GET /', () => {
-    test('zwraca stronę główną (HTML)', async () => {
+    test('zwraca stronę główną', async () => {
         const res = await request(app).get('/');
+        expect(res.status).toBe(200);
+        expect(res.text).toContain('<!DOCTYPE html>');
+        expect(res.text).toContain('BFLIP');
+    });
+});
+
+describe('GET /admin', () => {
+    test('zwraca panel admina', async () => {
+        const res = await request(app).get('/admin');
         expect(res.status).toBe(200);
         expect(res.text).toContain('<!DOCTYPE html>');
     });
 });
 
-describe('GET /admin', () => {
-    test('zwraca panel admina (HTML)', async () => {
-        const res = await request(app).get('/admin');
+describe('GET /api/session', () => {
+    test('zwraca { authenticated: false } bez ciasteczka', async () => {
+        const res = await request(app).get('/api/session');
         expect(res.status).toBe(200);
-        expect(res.text).toContain('BFLIP Admin');
-    });
-});
-
-describe('POST /admin/login', () => {
-    test('odrzuca bez tokena', async () => {
-        const res = await request(app)
-            .post('/admin/login')
-            .send({});
-        expect(res.status).toBe(400);
-        expect(res.body.message).toBe('Podaj token.');
-    });
-
-    test('odrzuca z błędnym tokenem', async () => {
-        const res = await request(app)
-            .post('/admin/login')
-            .send({ token: 'zly-token' });
-        expect(res.status).toBe(401);
-        expect(res.body.message).toBe('Zły token.');
-    });
-
-    test('akceptuje poprawny token', async () => {
-        const res = await request(app)
-            .post('/admin/login')
-            .send({ token: 'test-token-123' });
-        expect(res.status).toBe(200);
-        expect(res.body.ok).toBe(true);
-    });
-});
-
-describe('GET /api/leaderboard', () => {
-    test('zwraca leaderboard', async () => {
-        const res = await request(app).get('/api/leaderboard');
-        expect(res.status).toBe(200);
-        expect(Array.isArray(res.body.leaderboard)).toBe(true);
-    });
-});
-
-describe('GET /api/admin/players (bez auth)', () => {
-    test('odrzuca bez sesji admina', async () => {
-        const res = await request(app).get('/api/admin/players');
-        expect(res.status).toBe(401);
-    });
-});
-
-describe('GET /api/admin/players (z auth)', () => {
-    test('zwraca paginację', async () => {
-        // Najpierw zaloguj jako admin
-        const agent = request.agent(app);
-        await agent.post('/admin/login').send({ token: 'test-token-123' });
-
-        const res = await agent.get('/api/admin/players');
-        expect(res.status).toBe(200);
-        expect(Array.isArray(res.body.players)).toBe(true);
-        expect(res.body).toHaveProperty('total');
-        expect(res.body).toHaveProperty('page');
-        expect(res.body).toHaveProperty('pages');
-        expect(res.body).toHaveProperty('limit');
-        expect(typeof res.body.total).toBe('number');
-    });
-
-    test('akceptuje parametry page i limit', async () => {
-        const agent = request.agent(app);
-        await agent.post('/admin/login').send({ token: 'test-token-123' });
-
-        const res = await agent.get('/api/admin/players?page=1&limit=10');
-        expect(res.status).toBe(200);
-        expect(res.body.page).toBe(1);
-        expect(res.body.limit).toBe(10);
-    });
-
-    test('ogranicza limit do max 100', async () => {
-        const agent = request.agent(app);
-        await agent.post('/admin/login').send({ token: 'test-token-123' });
-
-        const res = await agent.get('/api/admin/players?limit=999');
-        expect(res.status).toBe(200);
-        expect(res.body.limit).toBe(100);
+        expect(res.body.authenticated).toBe(false);
     });
 });
 
 describe('POST /verify-start', () => {
-    test('odrzuca bez username', async () => {
+    test('generuje kod weryfikacyjny', async () => {
         const res = await request(app)
             .post('/verify-start')
-            .send({});
-        expect(res.status).toBe(400);
-        expect(res.body.message).toBe('Podaj nick!');
+            .send({ username: 'TUser_' + Date.now() });
+        expect(res.status).toBe(200);
+        expect(res.body.code).toMatch(/^[A-Z0-9]{6}$/);
     });
 
-    test('zwraca kod weryfikacyjny', async () => {
+    test('odrzuca pusty nick', async () => {
         const res = await request(app)
             .post('/verify-start')
-            .send({ username: 'TestPlayer' });
+            .send({ username: '' });
         expect(res.status).toBe(200);
-        expect(res.body.code).toMatch(/^blox[A-Z0-9]{4}$/);
+        expect(res.body.message).toContain('Nieprawidłowy nick');
+    });
+
+    test('odrzuca zbyt krótki nick', async () => {
+        const res = await request(app)
+            .post('/verify-start')
+            .send({ username: 'A' });
+        expect(res.status).toBe(200);
+        expect(res.body.message).toContain('Nieprawidłowy nick');
     });
 });
 
-describe('GET /api/pets/categories', () => {
-    test('zwraca listę kategorii', async () => {
-        const res = await request(app).get('/api/pets/categories');
+describe('POST /verify-check', () => {
+    test('odrzuca bez wcześniejszego kodu', async () => {
+        const res = await request(app)
+            .post('/verify-check')
+            .send({ username: 'NoCode_' + Date.now() });
         expect(res.status).toBe(200);
-        expect(Array.isArray(res.body.categories)).toBe(true);
-        expect(res.body.categories).toContain('Gem');
+        expect(res.body.success).toBe(false);
     });
+
+    test('odrzuca pusty nick', async () => {
+        const res = await request(app)
+            .post('/verify-check')
+            .send({ username: '' });
+        expect(res.status).toBe(200);
+        expect(res.body.message).toBe('Brak nicku.');
+    });
+});
+
+describe('POST /verify-start → /verify-check (full flow)', () => {
+    test('generuje kod i loguje użytkownika', async () => {
+        const username = 'Flow_' + Date.now();
+
+        // Step 1: generate code
+        const startRes = await request(app)
+            .post('/verify-start')
+            .send({ username });
+        expect(startRes.status).toBe(200);
+        expect(startRes.body.code).toMatch(/^[A-Z0-9]{6}$/);
+
+        // Step 2: verify (code is not actually needed for check, just username)
+        const checkRes = await request(app)
+            .post('/verify-check')
+            .send({ username });
+        expect(checkRes.status).toBe(200);
+        expect(checkRes.body.success).toBe(true);
+        expect(checkRes.body.username).toBe(username);
+    });
+});
+
+// ── TESTY ENDPOINTÓW PROVIDABLY FAIR ───────────────────────────
+
+describe('GET /api/provably-fair/seed-hash', () => {
+    test('zwraca hash server seeda', async () => {
+        const res = await request(app).get('/api/provably-fair/seed-hash');
+        expect(res.status).toBe(200);
+        expect(res.body.serverSeedHash).toMatch(/^[a-f0-9]{64}$/);
+    });
+});
+
+describe('GET /api/provably-fair/seed-info', () => {
+    test('zwraca informacje o seedach', async () => {
+        const res = await request(app).get('/api/provably-fair/seed-info');
+        expect(res.status).toBe(200);
+        expect(res.body).toHaveProperty('currentIndex');
+        expect(res.body).toHaveProperty('remainingSeeds');
+    });
+});
+
+describe('GET /api/provably-fair/revealed-seeds', () => {
+    test('zwraca listę ujawnionych seedów', async () => {
+        const res = await request(app).get('/api/provably-fair/revealed-seeds');
+        expect(res.status).toBe(200);
+        expect(res.body).toHaveProperty('seeds');
+        expect(Array.isArray(res.body.seeds)).toBe(true);
+    });
+});
+
+describe('POST /api/provably-fair/verify', () => {
+    test('weryfikuje wynik fair (brak parametrów = 400)', async () => {
+        const res = await request(app)
+            .post('/api/provably-fair/verify')
+            .send({});
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe('Missing parameters');
+    });
+
+    test('weryfikuje wynik fair z poprawnymi parametrami', async () => {
+        const res = await request(app)
+            .post('/api/provably-fair/verify')
+            .send({ serverSeed: 'testseed', clientSeed: 'testclient', nonce: 0 });
+        expect(res.status).toBe(200);
+        expect(res.body).toHaveProperty('result');
+        expect(res.body).toHaveProperty('hash');
+        expect(res.body).toHaveProperty('num');
+    });
+});
+
+// ── TESTY BAZY DANYCH ─────────────────────────────────────────
+
+describe('Database - CRUD graczy', () => {
+    test('zapis i odczyt gracza', () => {
+        const name = 'CRUD_' + Date.now();
+        const player = db.getPlayer(name);
+        player.coins = 9999;
+        db.savePlayer(name, player);
+
+        const loaded = db.getPlayer(name);
+        expect(loaded.coins).toBe(9999);
+    });
+
+    test('getAllPlayers zwraca obiekt', () => {
+        const all = db.getAllPlayers();
+        expect(typeof all).toBe('object');
+    });
+
+    test('usernameExists sprawdza istnienie', () => {
+        const name = 'Exists_' + Date.now();
+        expect(db.usernameExists(name)).toBe(false);
+        db.getPlayer(name);
+        expect(db.usernameExists(name)).toBe(true);
+    });
+
+    test('getPlayerCount zwraca liczbę', () => {
+        const count = db.getPlayerCount();
+        expect(typeof count).toBe('number');
+        expect(count).toBeGreaterThanOrEqual(0);
+    });
+});
+
+describe('Database - czat', () => {
+    test('loadChat zwraca tablicę', () => {
+        const chat = db.loadChat();
+        expect(Array.isArray(chat)).toBe(true);
+    });
+
+    test('saveChat/loadChat roundtrip', () => {
+        const testMsg = [{ user: 'test', msg: 'hello', time: Date.now() }];
+        db.saveChat(testMsg);
+        const loaded = db.loadChat();
+        expect(loaded).toEqual(testMsg);
+        // Cleanup
+        db.saveChat([]);
+    });
+});
+
+describe('Database - promo kody', () => {
+    test('loadPromo zwraca obiekt', () => {
+        const promos = db.loadPromo();
+        expect(typeof promos).toBe('object');
+    });
+
+    test('savePromo/loadPromo roundtrip', () => {
+        const testPromo = { 'TEST123': { code: 'TEST123', rewardType: 'coins', rewardValue: 100, maxUses: 10, used: 0 } };
+        db.savePromo(testPromo);
+        const loaded = db.loadPromo();
+        expect(loaded.TEST123).toBeTruthy();
+        expect(loaded.TEST123.rewardValue).toBe(100);
+        // Cleanup
+        db.savePromo({});
+    });
+});
+
+describe('Database - admin', () => {
+    test('loadAdmin zwraca obiekt z password', () => {
+        const admin = db.loadAdmin();
+        expect(admin).toHaveProperty('password');
+    });
+});
+
+describe('Database - bany', () => {
+    test('loadBans zwraca obiekt', () => {
+        const bans = db.loadBans();
+        expect(typeof bans).toBe('object');
+    });
+});
+
+describe('Database - ostrzeżenia', () => {
+    test('loadWarnings zwraca obiekt', () => {
+        const warnings = db.loadWarnings();
+        expect(typeof warnings).toBe('object');
+    });
+});
+
+// ── TESTY GAMES - RECENT GAMES ─────────────────────────────────
+
+describe('games.addRecentGame() / getRecentGames()', () => {
+    test('dodaje i zwraca ostatnie gry', () => {
+        const countBefore = games.getRecentGames().length;
+        games.addRecentGame({ type: 'coinflip', winner: 'test', loser: 'house', amount: 100 });
+        const gamesList = games.getRecentGames();
+        expect(gamesList.length).toBe(countBefore + 1);
+        expect(gamesList[0].type).toBe('coinflip');
+    });
+});
+
+// ── CLEANUP ─────────────────────────────────────────────────────
+
+afterAll(() => {
+    // Cleanup test data
+    const dataDir = path.join(__dirname, '..', 'data');
+    if (fs.existsSync(dataDir)) {
+        const files = fs.readdirSync(dataDir);
+        files.forEach(f => {
+            if (f.endsWith('.json')) {
+                try { fs.unlinkSync(path.join(dataDir, f)); } catch {}
+            }
+        });
+    }
 });
