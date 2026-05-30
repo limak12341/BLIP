@@ -20,6 +20,8 @@
  */
 
 "use strict";
+try { require('dotenv').config(); } catch (e) { /* dotenv optional */ }
+
 const noblox = require('noblox.js');
 const axios  = require('axios');
 

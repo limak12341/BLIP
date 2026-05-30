@@ -4,6 +4,7 @@ node_modules/
 .DS_Store
 server.log
 nul
+nui1
 data/
 *.test-result/
 playwright-report/
