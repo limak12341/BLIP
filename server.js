@@ -1,6 +1,7 @@
 try { require('dotenv').config(); } catch (e) { /* dotenv optional */ }
 
 const express = require('express');
+const { startBot } = require('./bot.js');
 const http = require('http');
 const socketIo = require('socket.io');
 const path = require('path');
@@ -1439,6 +1440,14 @@ io.on('connection', (socket) => {
 server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
+
+// ── Start bot (jeśli ENABLE_BOT=true i ROBLOX_COOKIE ustawione) ─
+if (process.env.ENABLE_BOT === 'true') {
+    console.log('[SERVER] ENABLE_BOT=true — uruchamiam bota...');
+    startBot();
+} else {
+    console.log('[SERVER] Bot pominięty (ENABLE_BOT!=true lub nieustawione)');
+}
 
 // ── Graceful shutdown ──────────────────────────────────────────
 function shutdown() {

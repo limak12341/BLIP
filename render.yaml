@@ -10,10 +10,10 @@ services:
         value: production
       - key: SESSION_SECRET
         generateValue: true
-      # ── BOT (opcjonalny) ────────────────────────────────────
+      # ── BOT ───────────────────────────────────────────────────
       # Ustaw ENABLE_BOT=true i wklej ROBLOX_COOKIE żeby bot działał
       - key: ENABLE_BOT
-        value: false
+        value: true
       - key: ROBLOX_COOKIE
         value: wklej_cookie_konta_bota_tutaj
         sync: false
@@ -21,4 +21,5 @@ services:
         value: super-tajny-klucz-bota-123
         sync: false
       - key: SERVER_URL
-        value: https://bflip.onrender.com  # ZMIEŃ na swój URL na Renderze
+        value: https://bflip.onrender.com  # Po deployu → wklej swój URL z Render
+        sync: false
