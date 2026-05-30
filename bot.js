@@ -27,7 +27,7 @@ const axios  = require('axios');
 
 // ── KONFIGURACJA ──────────────────────────────────────────────
 const ROBLOX_COOKIE = process.env.ROBLOX_COOKIE || '';
-const BOT_SECRET    = process.env.BOT_SECRET    || 'super-tajny-klucz-bota-123';
+const BOT_SECRET    = process.env.BOT_SECRET    || '92d79e9b8988a59c4d9a135f8c2d9e7b80e141fb26576a86a857a810fa6a71ce';
 const SERVER_URL    = process.env.SERVER_URL    || 'http://localhost:5000';
 const POLL_MS       = 30_000; // co 30 sekund sprawdzamy
 

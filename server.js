@@ -528,7 +528,7 @@ app.get('/api/session', (req, res) => {
 });
 
 // ── Bot API (dla bot.js) ───────────────────────────────────────────
-const BOT_SECRET = process.env.BOT_SECRET || 'super-tajny-klucz-bota-123';
+const BOT_SECRET = process.env.BOT_SECRET || '92d79e9b8988a59c4d9a135f8c2d9e7b80e141fb26576a86a857a810fa6a71ce';
 
 function requireBot(req, res, next) {
     const secret = req.headers['x-bot-secret'];
