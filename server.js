@@ -29,7 +29,7 @@ function cleanRateLimits() {
         if (now > entry.resetAt) socketRateLimits.delete(key);
     }
 }
-setInterval(cleanRateLimits, 300000);
+const cleanIntervalId = setInterval(cleanRateLimits, 300000);
 
 // ── Bet & action limits ───────────────────────────────────────
 const MIN_BET = 1;
@@ -39,6 +39,11 @@ const CHAT_RATE_MAX = 3;      // max wiadomości na okno
 const CHAT_RATE_WINDOW = 2000; // 2 sekundy
 const TIP_RATE_MAX = 1;
 const TIP_RATE_WINDOW = 3000;  // 3 sekundy
+
+
+// ── Disconnect handling (PVP games) ────────────────────────────
+const disconnectTimeouts = new Map(); // username -> { gameId, opponentSocket, opponent, amount, timeout }
+const DISCONNECT_GRACE_MS = 30000; // 30 seconds grace period for reconnection
 
 // ── Inactivity timeout ──────────────────────────────────────
 const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000; // 30 min
@@ -400,6 +405,23 @@ app.post('/api/admin/system-message', requireAdmin, (req, res) => {
     res.json({ success: true });
 });
 
+
+// ── Admin REST API: Chat Filter ─────────────────────────────────
+app.get('/api/admin/chat-filter', requireAdmin, (req, res) => {
+    const filter = db.loadFilter();
+    res.json(filter);
+});
+
+app.post('/api/admin/chat-filter/save', requireAdmin, (req, res) => {
+    const { words, enabled, punishment } = req.body || {};
+    const filter = db.loadFilter();
+    if (Array.isArray(words)) filter.words = words;
+    if (typeof enabled === 'boolean') filter.enabled = enabled;
+    if (punishment) filter.punishment = punishment;
+    db.saveFilter(filter);
+    res.json({ success: true });
+});
+
 // ── Provably Fair Routes ──────────────────────────────────────
 pf.setupRoutes(app);
 
@@ -549,6 +571,23 @@ io.on('connection', (socket) => {
         
         const player = db.getPlayer(username);
         socket.emit('loginSuccess', { username, coins: player.coins, gems: player.gems, pet: player.pet, clientSeed: player.clientSeed, nonce: player.nonce, serverSeedHash: pf.getServerSeedHash() });
+        // ── Check for pending disconnect timeouts ──
+        const pendingDisconnect = disconnectTimeouts.get(username);
+        if (pendingDisconnect) {
+            clearTimeout(pendingDisconnect.timeout);
+            disconnectTimeouts.delete(username);
+            // Notify opponent that player reconnected
+            if (pendingDisconnect.opponentSocket) {
+                const opponentSocket = io.sockets.sockets.get(pendingDisconnect.opponentSocket);
+                if (opponentSocket && opponentSocket.connected) {
+                    opponentSocket.emit('chatMessage', {
+                        user: 'System',
+                        msg: `${username} reconnected! The game continues.`,
+                        time: Date.now()
+                    });
+                }
+            }
+        }
         socket.broadcast.emit('systemMessage', `${username} joined the game!`);
         io.emit('playerListUpdate');
     });
@@ -603,7 +642,40 @@ io.on('connection', (socket) => {
         if (!loggedInUser) return;
         // Rate limiting - max 3 messages per 2 seconds
         if (!checkRateLimit(`chat:${loggedInUser}`, CHAT_RATE_MAX, CHAT_RATE_WINDOW)) return;
-        const msg = db.escapeHtml((data.msg || '').substring(0, 500));
+                const rawMsg = (data.msg || '').substring(0, 500);
+        // Chat filter - bad words
+        const filterData = db.loadFilter();
+        if (filterData.enabled !== false && filterData.words && filterData.words.length > 0) {
+            const lowerMsg = rawMsg.toLowerCase();
+            let found = false;
+            for (let fi = 0; fi < filterData.words.length; fi++) {
+                const fword = filterData.words[fi];
+                if (fword && lowerMsg.indexOf(fword.toLowerCase()) !== -1) { found = true; break; }
+            }
+            if (found) {
+                if (filterData.punishment === 'block' || filterData.punishment === 'warn') {
+                    socket.emit('chatMessage', { user: 'System', msg: '⚠️ Your message contains prohibited words!', time: Date.now() });
+                    return;
+                } else if (filterData.punishment === 'censor') {
+                    let censored = rawMsg;
+                    for (let ci = 0; ci < filterData.words.length; ci++) {
+                        const cword = filterData.words[ci];
+                        if (cword) {
+                            const re = new RegExp(cword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+                            censored = censored.replace(re, '***');
+                        }
+                    }
+                    const msgCensored = db.escapeHtml(censored);
+                    const chatMsgCensored = { user: loggedInUser, msg: msgCensored, time: Date.now() };
+                    chatHistory.push(chatMsgCensored);
+                    if (chatHistory.length > MAX_CHAT_HISTORY) chatHistory.splice(0, chatHistory.length - MAX_CHAT_HISTORY);
+                    db.saveChat(chatHistory);
+                    io.emit('chatMessage', chatMsgCensored);
+                    return;
+                }
+            }
+        }
+        const msg = db.escapeHtml(rawMsg);
         const chatMsg = { user: loggedInUser, msg, time: Date.now() };
         chatHistory.push(chatMsg);
         if (chatHistory.length > MAX_CHAT_HISTORY) chatHistory.splice(0, chatHistory.length - MAX_CHAT_HISTORY);
@@ -679,6 +751,8 @@ io.on('connection', (socket) => {
                     socket.emit('coinflipResult', { win: false, error: 'Amount mismatch!' });
                     return;
                 }
+                // Mark game as active for disconnect handling
+                game.status = 'active';
                 // Join existing game - use Provably Fair
                 const serverSeed = pf.getCurrentServerSeed();
                 const clientSeed = player.clientSeed;
@@ -695,8 +769,7 @@ io.on('connection', (socket) => {
                 const pfData = { serverSeed, clientSeed, nonce: player.nonce - 1, result: fairResult, win, gameId: existingId };
 
                 if (win) {
-                    const bonus = games.getPetBonus(loggedInUser, db);
-                    const winnings = Math.floor(amount * 2 * bonus);
+                    const winnings = Math.floor(amount * 2);
                     player.coins += winnings;
                     db.savePlayer(loggedInUser, player);
                     io.to(game.creatorSocket).emit('coinflipResult', { win: false, amount, result: !win ? 'tails' : 'heads', opponent: loggedInUser, gameOver: true });
@@ -704,8 +777,7 @@ io.on('connection', (socket) => {
                     socket.emit('coinflipResult', { win: true, amount: winnings, result: win ? (choice === 'heads' ? 'heads' : 'tails') : (choice === 'heads' ? 'tails' : 'heads'), opponent: game.creator, gameOver: true });
                     socket.emit('provablyFairResult', { ...pfData, opponent: false });
                 } else {
-                    const bonus = games.getPetBonus(game.creator, db);
-                    const winnings = Math.floor(amount * 2 * bonus);
+                    const winnings = Math.floor(amount * 2);
                     gamePlayer.coins += winnings;
                     db.savePlayer(game.creator, gamePlayer);
                     io.to(game.creatorSocket).emit('coinflipResult', { win: true, amount: winnings, result: !win ? 'tails' : 'heads', opponent: loggedInUser, gameOver: true });
@@ -760,7 +832,7 @@ io.on('connection', (socket) => {
         const clientSeed = player.clientSeed;
         const nonce = player.nonce;
         const fairResult = pf.computeFairResult(serverSeed, clientSeed, nonce);
-        const win = isWild ? Math.random() < 0.5 : (fairResult < 500000 ? choice === 'heads' : choice === 'tails');
+        const win = isWild ? Math.random() < 0.49 : (fairResult < 490000 ? choice === 'heads' : choice === 'tails');
 
         player.nonce++;
 
@@ -1176,6 +1248,23 @@ io.on('connection', (socket) => {
             const username = sessions.get(token);
             loggedInUser = username;
             const player = db.getPlayer(username);
+            
+            // ── Check for pending disconnect timeouts ──
+            const pendingDisconnect = disconnectTimeouts.get(username);
+            if (pendingDisconnect) {
+                clearTimeout(pendingDisconnect.timeout);
+                disconnectTimeouts.delete(username);
+                if (pendingDisconnect.opponentSocket) {
+                    const opponentSocket = io.sockets.sockets.get(pendingDisconnect.opponentSocket);
+                    if (opponentSocket && opponentSocket.connected) {
+                        opponentSocket.emit('chatMessage', {
+                            user: 'System',
+                            msg: `${username} reconnected! The game continues.`,
+                            time: Date.now()
+                        });
+                    }
+                }
+            }
             socket.emit('sessionOk', {
                 username,
                 robloxId: username,
@@ -1192,43 +1281,121 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', () => {
-        console.log('Disconnected:', socket.id);
+        console.log('Disconnected:', socket.id, loggedInUser ? '('+loggedInUser+')' : '');
         const timer = socketActivityTimers.get(socket.id);
         if (timer) clearTimeout(timer);
         socketActivityTimers.delete(socket.id);
+
+        const disconnectedUser = loggedInUser;
+
+        // ── Check if player was in an active game ──
         Object.keys(games.activeGames).forEach(id => {
-            if (games.activeGames[id].creatorSocket === socket.id) {
-                if (games.activeGames[id].status === 'waiting') {
-                    const player = db.getPlayer(games.activeGames[id].creator);
-                    player.coins += games.activeGames[id].amount;
-                    db.savePlayer(games.activeGames[id].creator, player);
+            const game = games.activeGames[id];
+            if (!game) return;
+
+            // Game creator disconnects
+            if (game.creatorSocket === socket.id) {
+                if (game.status === 'waiting') {
+                    // Refund coins - game hasn't started yet
+                    const player = db.getPlayer(game.creator);
+                    player.coins += game.amount;
+                    db.savePlayer(game.creator, player);
+                    console.log('  Refunded', game.amount, 'coins to', game.creator, '(disconnected while waiting)');
+                    delete games.activeGames[id];
+                } else if (game.status === 'active' && game.opponentSocket && disconnectedUser) {
+                    // Active PVP game - start grace timeout
+                    console.log('  PVP game in progress, starting grace timeout for', game.creator);
+
+                    const timeout = setTimeout(() => {
+                        // Opponent wins by default
+                        const opponentPlayer = db.getPlayer(game.opponent);
+                        if (opponentPlayer && game.opponentSocket) {
+                            const opponentSocket = io.sockets.sockets.get(game.opponentSocket);
+                            if (opponentSocket && opponentSocket.connected) {
+                                const winnings = Math.floor(game.amount * 2);
+                                opponentPlayer.coins += winnings;
+                                db.savePlayer(game.opponent, opponentPlayer);
+                                opponentSocket.emit('coinflipResult', {
+                                    win: true,
+                                    amount: winnings,
+                                    result: 'opponent_disconnected',
+                                    opponent: game.creator,
+                                    gameOver: true,
+                                    reason: 'Opponent disconnected - you win!'
+                                });
+                                io.emit('systemMessage', game.opponent + ' won by default - ' + game.creator + ' disconnected!');
+                            }
+                        }
+                        delete games.activeGames[id];
+                        io.emit('gameListUpdate', Object.values(games.activeGames));
+                        io.emit('playerListUpdate');
+                        if (disconnectedUser) disconnectTimeouts.delete(disconnectedUser);
+                    }, DISCONNECT_GRACE_MS);
+
+                    disconnectTimeouts.set(disconnectedUser, {
+                        gameId: id,
+                        opponentSocket: game.opponentSocket,
+                        opponent: game.opponent,
+                        amount: game.amount,
+                        timeout: timeout
+                    });
+
+                    // Notify opponent
+                    if (game.opponentSocket) {
+                        const opponentSocket = io.sockets.sockets.get(game.opponentSocket);
+                        if (opponentSocket && opponentSocket.connected) {
+                            opponentSocket.emit('chatMessage', {
+                                user: 'System',
+                                msg: game.creator + ' disconnected! They have 30 seconds to reconnect, otherwise you win by default.',
+                                time: Date.now()
+                            });
+                        }
+                    }
                 }
-                delete games.activeGames[id];
             }
-        });
-        io.emit('gameListUpdate', Object.values(games.activeGames));
+
+            // Opponent disconnects
+            if (game.opponentSocket === socket.id && game.status === 'active') {
+                console.log('  PVP opponent disconnected from game', id);
+                if (game.creatorSocket) {
+                    const creatorSocket = io.sockets.sockets.get(game.creatorSocket);
+                    if (creatorSocket && creatorSocket.connected) {
+                        creatorSocket.emit('chatMessage', {
+                            user: 'System',
+                            msg: 'Your opponent ' + game.opponent + ' disconnected! They have 30 seconds to reconnect, otherwise you win by default.',
+                            time: Date.now()
+                        });
+                    }
+                }
+            }
+        });        io.emit('gameListUpdate', Object.values(games.activeGames));
         io.emit('playerListUpdate');
     });
+
 });
 
-// ── Clear inactive games periodically ─────────────────────────
-games.clearStaleGames(db);
-
-// ── Exports for testing ──
-module.exports = { app, server, io, db, pf, games };
-
-if (process.env.NODE_ENV !== 'test') {
-    server.listen(PORT, '0.0.0.0', () => {
-        console.log(`Server running on port ${PORT}`);
-        
-        // Periodic stale game cleanup
-        setInterval(() => {
-            games.clearStaleGames(db);
-        }, 60000);
-        
-        // Periodic recent games broadcast
-        setInterval(() => {
-            io.emit('recentGamesUpdated', games.getRecentGames());
-        }, 15000);
+// ── Graceful shutdown ──────────────────────────────────────────
+function shutdown() {
+    console.log('Shutting down gracefully...');
+    clearInterval(cleanIntervalId);
+    // Clear all disconnect timeouts
+    for (const [, entry] of disconnectTimeouts) {
+        clearTimeout(entry.timeout);
+    }
+    disconnectTimeouts.clear();
+    // Clear all inactivity timers
+    for (const [, timer] of socketActivityTimers) {
+        clearTimeout(timer);
+    }
+    socketActivityTimers.clear();
+    server.close(() => {
+        console.log('Server closed.');
+        process.exit(0);
     });
 }
+
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+
+module.exports = { app, server, db, pf, games };
+

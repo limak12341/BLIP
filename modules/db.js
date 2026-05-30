@@ -200,6 +200,16 @@ function fmt(n) {
     return (v / 1_000_000_000).toFixed(v < 10_000_000_000 ? 1 : 0) + 'B';
 }
 
+
+// ── Chat Filter (bad words) ──
+const FILTER_FILE = path.join(DATA_DIR, 'filter.json');
+function loadFilter() {
+    return loadJson(FILTER_FILE, { words: [], enabled: true, punishment: 'block' });
+}
+function saveFilter(data) {
+    saveJson(FILTER_FILE, data);
+}
+
 function escapeHtml(str) {
     return String(str || '').replace(/[&<>"']/g, (m) => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -273,6 +283,7 @@ function updatePlayerClientSeed(username, clientSeed) {
 }
 
 module.exports = {
+    loadFilter, saveFilter,
     loadData, saveData,
     getPlayer, savePlayer, getAllPlayers, usernameExists, getPlayerCount,
     generateClientSeed,

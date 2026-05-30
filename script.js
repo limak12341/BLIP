@@ -300,7 +300,9 @@ socket.on('playerListUpdate', async () => {
         if (dashTab && dashTab.style.display !== 'none') {
             refreshDashboard();
         }
-    } catch (e) {}
+    } catch (e) {
+        console.warn('Balance refresh error:', e.message);
+    }
 });
 
 socket.on('sessionNone', () => { loginOverlay.style.display = 'flex'; });
@@ -499,7 +501,9 @@ window.refreshDashboard = async function() {
         const sign = profit >= 0 ? '+' : '';
         profitEl.textContent = sign + '🪙 ' + fmt(Math.abs(profit));
         profitRow.className = 'dash-profit-row ' + (profit >= 0 ? 'green' : 'red');
-    } catch (e) {}
+    } catch (e) {
+        console.warn('Dashboard refresh error:', e.message);
+    }
     
     // Server stats from DOM (populated by socket events)
     const onlineEl = document.getElementById('chat-online');
@@ -1198,7 +1202,9 @@ window.closeResultModal = () => {
     document.getElementById('result-modal').style.display = 'none';
     document.getElementById('res-items-section').style.display = 'none';
     const coin = document.getElementById('big-coin');
+    const wrap = document.getElementById('big-coin-wrap');
     coin.classList.remove('spinning');
+    if (wrap) wrap.classList.remove('spinning');
     coin.style.transform = '';
 };
 
@@ -1215,18 +1221,23 @@ function fillResultPlayers(creator, joiner, youAreCreator) {
 
 function spinCoinTo(side) {
     const coin = document.getElementById('big-coin');
+    const wrap = document.getElementById('big-coin-wrap');
     const deg  = side === 'heads' ? 1800 : 1980;
     coin.style.setProperty('--spin-to-deg', `${deg}deg`);
     coin.style.setProperty('--spin-dur', `${FLIP_MS}ms`);
     coin.style.transform = '';
     coin.classList.remove('spinning');
+    if (wrap) wrap.classList.remove('spinning');
     void coin.offsetWidth;
     coin.classList.add('spinning');
+    if (wrap) wrap.classList.add('spinning');
 }
 
 function setCoinFinal(side) {
     const coin = document.getElementById('big-coin');
+    const wrap = document.getElementById('big-coin-wrap');
     coin.classList.remove('spinning');
+    if (wrap) wrap.classList.remove('spinning');
     coin.style.transform = side === 'heads' ? 'rotateY(0deg)' : 'rotateY(180deg)';
 }
 
@@ -2337,6 +2348,131 @@ function renderInventory() {
         }
     }
 }
+
+
+// ── SIDEBAR MOBILE AUTO-HIDE ────────────────────────────
+window.closeMobileSidebar = function() {
+    const overlay = document.getElementById('sidebar-overlay');
+    if (overlay) overlay.classList.remove('open');
+    const sidebar = document.getElementById('sidebar');
+    if (sidebar) sidebar.classList.remove('mobile-open');
+    document.body.classList.remove('sidebar-mobile-open');
+};
+
+// Toggle sidebar on mobile - called from sidebar toggle
+window.toggleSidebar = (function(original) {
+    return function() {
+        // On mobile/tablet: toggle overlay instead of collapse
+        if (window.innerWidth <= 900) {
+            const overlay = document.getElementById('sidebar-overlay');
+            const sidebar = document.getElementById('sidebar');
+            if (overlay) {
+                const isOpen = overlay.classList.contains('open');
+                overlay.classList.toggle('open');
+                if (sidebar) sidebar.classList.toggle('mobile-open');
+                document.body.classList.toggle('sidebar-mobile-open');
+                // Update button text
+                const btn = document.querySelector('.sidebar-collapse-btn');
+                if (btn) {
+                    btn.textContent = isOpen ? '◀' : '✕';
+                    btn.title = isOpen ? 'Zwiń sidebar' : 'Zamknij';
+                }
+            }
+        } else {
+            original();
+        }
+    };
+})(window.toggleSidebar);
+
+// Auto-collapse sidebar on window resize
+function handleSidebarResize() {
+    const overlay = document.getElementById('sidebar-overlay');
+    if (!overlay) return;
+    
+    if (window.innerWidth > 900) {
+        // Desktop: remove mobile overlay state
+        overlay.classList.remove('open');
+        const sidebar = document.getElementById('sidebar');
+        if (sidebar) sidebar.classList.remove('mobile-open');
+        document.body.classList.remove('sidebar-mobile-open');
+        const btn = document.querySelector('.sidebar-collapse-btn');
+        if (btn) {
+            btn.textContent = '◀';
+            btn.title = 'Zwiń sidebar';
+        }
+    } else if (window.innerWidth <= 768) {
+        // Mobile: auto-collapse sidebar
+        const layout = document.querySelector('.app-layout');
+        if (layout && !layout.classList.contains('sidebar-collapsed')) {
+            layout.classList.add('sidebar-collapsed');
+        }
+    }
+}
+
+// Throttled resize handler
+let sidebarResizeTimer = null;
+window.addEventListener('resize', function() {
+    clearTimeout(sidebarResizeTimer);
+    sidebarResizeTimer = setTimeout(handleSidebarResize, 100);
+});
+
+// Close sidebar when clicking on main content area (tablet)
+document.addEventListener('click', function(e) {
+    if (window.innerWidth > 768 && window.innerWidth <= 900) {
+        const sidebar = document.getElementById('sidebar');
+        const overlay = document.getElementById('sidebar-overlay');
+        if (sidebar && overlay && overlay.classList.contains('open')) {
+            // Check if click is outside sidebar
+            if (!sidebar.contains(e.target)) {
+                closeMobileSidebar();
+            }
+        }
+    }
+});
+
+// Save sidebar collapse state to localStorage
+(function patchToggleSidebarDesktop() {
+    const origToggle = window.toggleSidebar;
+    // We already patched it above — but we need to save state on desktop
+    // Add save on the original desktop toggle
+    const layout = document.querySelector('.app-layout');
+    if (layout && layout.classList.contains('sidebar-collapsed')) {
+        localStorage.setItem('bflip-sidebar-collapsed', 'true');
+    }
+})();
+
+// On page load, restore sidebar collapse state
+(function restoreSidebarState() {
+    const saved = localStorage.getItem('bflip-sidebar-collapsed');
+    if (saved === 'true') {
+        const layout = document.querySelector('.app-layout');
+        if (layout) {
+            layout.classList.add('sidebar-collapsed');
+            const btn = document.querySelector('.sidebar-collapse-btn');
+            if (btn) {
+                btn.textContent = '▶';
+                btn.title = 'Rozwiń sidebar';
+            }
+        }
+    }
+})();
+
+// Update toggleSidebar to save state
+(function patchToggleSidebarSave() {
+    const orig = window.toggleSidebar;
+    window.toggleSidebar = function() {
+        orig();
+        // Save state after toggle (only on desktop, mobile uses overlay)
+        if (window.innerWidth > 900) {
+            const layout = document.querySelector('.app-layout');
+            if (layout) {
+                localStorage.setItem('bflip-sidebar-collapsed', 
+                    layout.classList.contains('sidebar-collapsed') ? 'true' : 'false');
+            }
+        }
+    };
+})();
+
 
 // ── CLOSE MODALS ON BACKGROUND CLICK ───────────────────────────
 ['create-modal','view-modal','result-modal','deposit-modal','withdraw-modal','join-modal','game-info-modal','rules-modal','profile-modal','merge-modal'].forEach(id => {

@@ -29,7 +29,7 @@ module.exports = defineConfig({
     command: 'node server.js',
     port: 10000,
     reuseExistingServer: true,
-    timeout: 15000,
+    timeout: 30000,
     env: {
       ADMIN_TOKEN: 'test-admin-token-123',
     },

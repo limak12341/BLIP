@@ -69,6 +69,7 @@
         <button class="chip" id="tab-btn-promo">🎁 Promo</button>
         <button class="chip" id="tab-btn-dashboard">📊 Dashboard</button>
         <button class="chip" id="tab-btn-seeds">🌱 Seed Explorer</button>
+        <button class="chip" id="tab-btn-filter">🔇 Filtr słów</button>
       </div>
     </div>
 
@@ -310,6 +311,54 @@
       </div>
     </div>
 
+        <!-- TAB: Chat Filter -->
+    <div id="tab-filter" style="display:none">
+      <div class="admin-title" style="margin-bottom:14px">🔇 Filtr zabronionych słów</div>
+
+      <div style="background:var(--surf);border:1px solid var(--border);border-radius:14px;padding:18px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+          <label style="display:flex;align-items:center;gap:6px;font-weight:700;font-size:.85rem;cursor:pointer">
+            <input type="checkbox" id="filter-enabled" checked style="width:18px;height:18px;accent-color:var(--purple);cursor:pointer">
+            Filtr aktywny
+          </label>
+          <select id="filter-punishment" style="padding:8px 12px;border-radius:8px;background:var(--surf2);border:1px solid var(--border2);color:var(--text);font-family:inherit;font-size:.8rem;cursor:pointer;outline:none;font-weight:600">
+            <option value="block">⛔ Blokuj wiadomość</option>
+            <option value="censor">🔇 Cenzuruj (***)</option>
+            <option value="warn">⚠️ Ostrzeżenie</option>
+          </select>
+          <button class="btn-ok" id="filter-save-settings" style="padding:8px 16px;font-size:.78rem">💾 Zapisz ustawienia</button>
+          <span id="filter-save-status" style="font-size:.82rem;font-weight:700"></span>
+        </div>
+
+        <div style="background:var(--surf2);border:1px solid var(--border2);border-radius:10px;padding:16px;margin-bottom:14px">
+          <div style="font-weight:700;font-size:.82rem;margin-bottom:10px">➕ Dodaj słowo do filtra</div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <input id="filter-new-word" class="login-input" placeholder="Np. scam, fake, rigged..." style="width:260px;text-transform:lowercase">
+            <button id="filter-add-word-btn" class="flip-btn" style="padding:10px 18px;font-size:.82rem;width:auto">➕ Dodaj</button>
+          </div>
+          <div class="login-error" id="filter-add-err" style="margin-top:6px"></div>
+        </div>
+
+        <div style="font-weight:700;font-size:.82rem;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between">
+          <span>📋 Lista zabronionych słów (<span id="filter-word-count">0</span>)</span>
+          <button id="filter-clear-all" style="padding:6px 12px;border-radius:6px;background:rgba(232,65,24,.1);border:1px solid rgba(232,65,24,.25);color:var(--red);font-size:.72rem;font-weight:700;cursor:pointer">🗑 Wyczyść wszystkie</button>
+        </div>
+
+        <div id="filter-words-list" style="display:flex;gap:8px;flex-wrap:wrap;min-height:40px;align-items:center"></div>
+        <div id="filter-empty" class="empty-mini" style="display:none">Brak słów w filtrze. Dodaj pierwsze słowo powyżej.</div>
+      </div>
+
+      <div style="background:var(--surf);border:1px solid var(--border);border-radius:14px;padding:18px">
+        <div style="font-weight:700;font-size:.82rem;margin-bottom:8px">ℹ️ Jak to działa?</div>
+        <div style="font-size:.78rem;color:var(--muted);line-height:1.6">
+          <b>Blokuj</b> — wiadomość zawierająca zabronione słowo nie zostanie wysłana, a nadawca dostanie powiadomienie.<br>
+          <b>Cenzuruj</b> — zabronione słowa zostaną zastąpione gwiazdkami (***), a wiadomość trafi na czat.<br>
+          <b>Ostrzeżenie</b> — wiadomość zostanie zablokowana, a nadawca dostanie ostrzeżenie.<br><br>
+          Wszystkie porównania są <b>case-insensitive</b> (niezależne od wielkości liter).
+        </div>
+      </div>
+    </div>
+
     <!-- TAB: Wiadomości systemowe -->
     <div id="tab-system" style="display:none">
       <div class="admin-title" style="margin-bottom:14px">📢 Wiadomość systemowa</div>
@@ -394,7 +443,7 @@
   // ── TAB SWITCHING: update for new tabs ──
   function switchTab(tab) {
     currentAdminTab = tab;
-    ['tab-requests','tab-players','tab-logs','tab-warnings','tab-system','tab-promo','tab-dashboard','tab-seeds'].forEach(id => {
+    ['tab-requests','tab-players','tab-logs','tab-warnings','tab-system','tab-promo','tab-dashboard','tab-seeds','tab-filter'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = id === 'tab-' + tab ? 'block' : 'none';
     });
@@ -410,6 +459,7 @@
     else if (tab === 'promo') refreshPromoCodes(1);
     else if (tab === 'dashboard') refreshDashboard();
     else if (tab === 'seeds') refreshSeedExplorer();
+    else if (tab === 'filter') refreshFilterTab();
     else if (tab === 'gracze') refreshPlayers(1); // alias PL
     else if (tab === 'logi') refreshLogs(1); // alias PL
   }
@@ -423,6 +473,7 @@
   document.getElementById('tab-btn-promo').addEventListener('click', () => switchTab('promo'));
   document.getElementById('tab-btn-dashboard').addEventListener('click', () => switchTab('dashboard'));
   document.getElementById('tab-btn-seeds').addEventListener('click', () => switchTab('seeds'));
+  document.getElementById('tab-btn-filter').addEventListener('click', () => switchTab('filter'));
   document.getElementById('dash-refresh-btn').addEventListener('click', refreshDashboard);
 
   // ── LOGS ──
@@ -1348,6 +1399,92 @@
       resultEl.innerHTML = '<div style="color:var(--red);font-weight:700">❌ Błąd: ' + escapeHtml(e.message) + '</div>';
     }
   }
+
+  
+  // ── FILTER TAB ──
+  let filterWords = [];
+  let filterEnabled = true;
+  let filterPunishment = 'block';
+
+  async function refreshFilterTab() {
+    try {
+      const data = await apiJson('/api/admin/chat-filter');
+      filterWords = data.words || [];
+      filterEnabled = data.enabled !== false;
+      filterPunishment = data.punishment || 'block';
+      document.getElementById('filter-enabled').checked = filterEnabled;
+      document.getElementById('filter-punishment').value = filterPunishment;
+      renderFilterWords();
+    } catch (e) { console.error('Filter load error:', e); }
+  }
+
+  function renderFilterWords() {
+    const list = document.getElementById('filter-words-list');
+    const empty = document.getElementById('filter-empty');
+    const count = document.getElementById('filter-word-count');
+    list.innerHTML = '';
+    count.textContent = filterWords.length;
+    empty.style.display = filterWords.length ? 'none' : 'block';
+    filterWords.forEach(function(word, idx) {
+      var chip = document.createElement('span');
+      chip.style.cssText = 'display:inline-flex;align-items:center;gap:6px;padding:6px 12px;background:rgba(232,65,24,.08);border:1px solid rgba(232,65,24,.2);border-radius:999px;font-size:.78rem;font-weight:700';
+      chip.innerHTML = '<span style="color:var(--red)">' + escapeHtml(word) + '</span><button class="filter-remove-word" data-index="' + idx + '" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:.9rem;padding:0;line-height:1;opacity:.6">✕</button>';
+      list.appendChild(chip);
+    });
+    document.querySelectorAll('.filter-remove-word').forEach(function(btn) {
+      btn.addEventListener('click', async function() {
+        var idx = parseInt(btn.dataset.index);
+        filterWords.splice(idx, 1);
+        await saveFilterToServer();
+        renderFilterWords();
+      });
+    });
+  }
+
+  async function saveFilterToServer() {
+    try {
+      await apiJson('/api/admin/chat-filter/save', {
+        method: 'POST',
+        body: JSON.stringify({
+          words: filterWords,
+          enabled: document.getElementById('filter-enabled').checked,
+          punishment: document.getElementById('filter-punishment').value
+        })
+      });
+    } catch (e) { console.error('Filter save error:', e); }
+  }
+
+  document.getElementById('filter-add-word-btn').addEventListener('click', async function() {
+    var input = document.getElementById('filter-new-word');
+    var errEl = document.getElementById('filter-add-err');
+    var word = input.value.trim().toLowerCase();
+    if (!word) { errEl.textContent = '❌ Wpisz słowo!'; return; }
+    if (filterWords.indexOf(word) !== -1) { errEl.textContent = '❌ To słowo już jest na liście!'; return; }
+    errEl.textContent = '';
+    filterWords.push(word);
+    input.value = '';
+    await saveFilterToServer();
+    renderFilterWords();
+  });
+
+  document.getElementById('filter-new-word').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') document.getElementById('filter-add-word-btn').click();
+  });
+
+  document.getElementById('filter-save-settings').addEventListener('click', async function() {
+    var statusEl = document.getElementById('filter-save-status');
+    await saveFilterToServer();
+    statusEl.textContent = '✅ Zapisano!';
+    statusEl.style.color = 'var(--green)';
+    setTimeout(function() { statusEl.textContent = ''; }, 2000);
+  });
+
+  document.getElementById('filter-clear-all').addEventListener('click', async function() {
+    if (!confirm('Usunąć wszystkie słowa z filtra?')) return;
+    filterWords = [];
+    await saveFilterToServer();
+    renderFilterWords();
+  });
 
   function adminClearVerify() {
     document.getElementById('admin-verify-server-seed').value = '';

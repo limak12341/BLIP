@@ -53,7 +53,7 @@
           <label class="login-field-label">Nick Roblox</label>
           <input type="text" id="rob-nick" placeholder="np. xX_Dragon_Xx" class="login-input" autocomplete="off">
         </div>
-        <button onclick="startVerification()" class="login-btn">
+        <button onclick="startVerification()" class="login-btn btn-glow">
           <span class="btn-icon">🔑</span> Generuj kod
         </button>
       </div>
@@ -181,6 +181,8 @@
       </div>
     </div>
   </aside>
+  <!-- ── SIDEBAR OVERLAY (mobile/tablet auto-hide backdrop) ── -->
+  <div class="sidebar-overlay" id="sidebar-overlay" onclick="closeMobileSidebar()"></div>
 
   <!-- ── MAIN AREA ───────────────────────────────── -->
   <div class="main-area">
@@ -355,8 +357,8 @@
               <span class="lobby-sub">aktywnych w lobby</span>
             </div>
             <div class="lobby-actions">
-              <button class="btn-history" onclick="showTab('coinflip');showCoinflipSubtab('history')">📜 Historia</button>
-              <button class="btn-create" id="btn-create" onclick="openCreateModal()">✦ Stwórz grę</button>
+              <button class="btn-history btn-glow" onclick="showTab('coinflip');showCoinflipSubtab('history')">📜 Historia</button>
+              <button class="btn-create btn-glow" id="btn-create" onclick="openCreateModal()">✦ Stwórz grę</button>
             </div>
           </div>
           <!-- LIVE FEED: Ostatnie wyniki -->
@@ -797,7 +799,7 @@
       <p class="promo-sub">Wpisz kod promocyjny i odbierz darmowe 🪙!</p>
       <div class="promo-input-wrap">
         <input type="text" id="promo-input" class="promo-input" placeholder="NP. WELCOME100" maxlength="30" autocomplete="off">
-        <button class="promo-submit-btn" onclick="redeemPromoCode()">Zrealizuj</button>
+        <button class="promo-submit-btn btn-glow" onclick="redeemPromoCode()">Zrealizuj</button>
       </div>
       <div id="promo-message" class="promo-message" style="display:none"></div>
       <div class="promo-history" id="promo-history">
