@@ -2487,6 +2487,50 @@ body::before {
 }
 
 /* ════════════════════════════════════════════
+/* ── Floating chat open button (visible when chat collapsed on desktop) ── */
+.chat-open-floating {
+  display: flex;
+  position: fixed;
+  right: 16px;
+  bottom: 20px;
+  z-index: 60;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background: var(--surf);
+  border: 1px solid var(--border2);
+  border-radius: 14px;
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: .85rem;
+  font-weight: 700;
+  box-shadow: 0 4px 20px rgba(0,0,0,.4);
+  opacity: 0;
+  transform: translateY(10px);
+  pointer-events: none;
+  transition: opacity .3s ease, transform .3s cubic-bezier(.34,1.56,.64,1), box-shadow .25s, border-color .25s;
+}
+.chat-open-floating:hover {
+  border-color: var(--purple);
+  box-shadow: 0 6px 28px rgba(0,0,0,.5), 0 0 30px rgba(124,92,252,.12);
+  transform: translateY(-3px);
+}
+.chat-open-floating .cof-icon {
+  font-size: 1.2rem;
+}
+.chat-open-floating .cof-label {
+  font-size: .8rem;
+}
+.app-layout.chat-collapsed .chat-open-floating {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+@media (max-width: 900px) {
+  .chat-open-floating { display: none !important; }
+}
+
    ROLE BADGES
    ════════════════════════════════════════════ */
 .role-badge {
@@ -2708,6 +2752,7 @@ body.sidebar-mobile-open {
   .sidebar-link .st-label { display: none; }
   .sidebar-link .st-icon { font-size: 1.2rem; width: auto; }
   .sidebar .profile-stats-panel { display: none !important; }
+  .sidebar .profile-stats-panel.open { display: block !important; }
   .sidebar-nav { margin-top: 0; }
   .lb-head, .lb-row { grid-template-columns: 36px 1fr 44px 50px 50px 70px; gap: 4px; padding: 10px 10px; font-size: .68rem; }
   .lb-avatar { width: 28px; height: 28px; }

@@ -32,12 +32,15 @@ function cleanRateLimits() {
         if (now > entry.resetAt) socketRateLimits.delete(key);
     }
 }
-const cleanIntervalId = setInterval(cleanRateLimits, 300000);
+let cleanIntervalId;
+if (require.main === module) {
+    cleanIntervalId = setInterval(cleanRateLimits, 300000);
+}
 
 // ── Bet & action limits ───────────────────────────────────────
 const MIN_BET = 1;
-const MAX_SOLO_BET = process.env.NODE_ENV === 'test' ? 1000000 : 5000;
-const MAX_PVP_BET = process.env.NODE_ENV === 'test' ? 1000000 : 50000;
+const MAX_SOLO_BET = process.env.NODE_ENV === 'test' ? 1000000 : 99999999999999;
+const MAX_PVP_BET = process.env.NODE_ENV === 'test' ? 1000000 : 99999999999999999;
 const CHAT_RATE_MAX = 3;      // max wiadomości na okno
 const CHAT_RATE_WINDOW = 2000; // 2 sekundy
 const TIP_RATE_MAX = 1;
@@ -775,14 +778,6 @@ io.on('connection', (socket) => {
             return;
         }
 
-        // Support gem wagering
-        if (data.item && games.WAGER_ITEMS[data.item]) {
-            const gemItem = games.WAGER_ITEMS[data.item];
-            if (player.gems < 1) { socket.emit('coinflipResult', { win: false, error: 'No gems!' }); return; }
-            player.gems -= 1;
-            amount = gemItem.value;
-        }
-
         if (player.coins < amount) {
             socket.emit('coinflipResult', { win: false, error: 'Not enough coins!' });
             return;
@@ -902,8 +897,7 @@ io.on('connection', (socket) => {
         const pfData = { serverSeed, clientSeed, nonce: nonce, result: fairResult, win, gameId: socket.id + '-' + Date.now() };
 
         if (win) {
-            const bonus = games.getPetBonus(loggedInUser, db);
-            const winnings = Math.floor(amount * 2 * bonus);
+            const winnings = Math.floor(amount * 2);
             player.coins += winnings;
             player.totalWon += winnings;
             socket.emit('coinflipResult', { win: true, amount: winnings, result: isWild ? 'wild' : (choice === 'heads' ? 'heads' : 'tails') });
@@ -1046,8 +1040,8 @@ io.on('connection', (socket) => {
             else if (action === 'adminSetCoins') target.coins = parseInt(data.amount);
             else if (action === 'adminResetPlayer') {
                 const fresh = {
-                    username: data.username, coins: 500, gems: 0, registered: Date.now(),
-                    lastDaily: 0, totalWagered: 0, totalWon: 0, gamesPlayed: 0,
+                    username: data.username, coins: 0, gems: 0, registered: Date.now(),
+                    totalWagered: 0, totalWon: 0, gamesPlayed: 0,
                     pet: null, roles: [], clientSeed: db.generateClientSeed(), nonce: 0
                 };
                 db.savePlayer(data.username, fresh);
@@ -1128,67 +1122,6 @@ io.on('connection', (socket) => {
         const admin = db.loadAdmin();
         admin.password = data.password;
         db.saveAdmin(admin);
-    });
-
-    // Daily reward
-    socket.on('dailyReward', () => {
-        if (!loggedInUser) return;
-        const player = db.getPlayer(loggedInUser);
-        const now = Date.now();
-        const msSinceLast = now - (player.lastDaily || 0);
-        if (msSinceLast < 86400000) {
-            const hoursLeft = Math.ceil((86400000 - msSinceLast) / 3600000);
-            socket.emit('chatMessage', { user: 'System', msg: `Daily in ${hoursLeft}h!`, time: now });
-            return;
-        }
-        const reward = 200;
-        player.coins += reward;
-        player.lastDaily = now;
-        db.savePlayer(loggedInUser, player);
-        socket.emit('chatMessage', { user: 'System', msg: `Daily ${reward} coins claimed!`, time: now });
-        io.emit('playerListUpdate');
-    });
-
-    // Shop
-    socket.on('buyItem', (data) => {
-        if (!loggedInUser) return;
-        const player = db.getPlayer(loggedInUser);
-        const item = games.PETS[data.item] || games.WAGER_ITEMS[data.item];
-        if (!item) return;
-        if (player.coins < item.cost && item.cost) {
-            socket.emit('chatMessage', { user: 'System', msg: 'Not enough coins!', time: Date.now() });
-            return;
-        }
-        if (item.cost) {
-            player.coins -= item.cost;
-        }
-        if (item.type === 'pet') {
-            if (player.pet) {
-                // Pet merge system
-                const currentPet = games.PETS[player.pet];
-                if (currentPet && currentPet.rarity === item.rarity) {
-                    const mergeResult = games.mergePets(player.pet, data.item);
-                    if (mergeResult) {
-                        player.pet = mergeResult;
-                        socket.emit('chatMessage', { user: 'System', msg: `Pets merged! You got ${games.PETS[mergeResult].displayName}!`, time: Date.now() });
-                    } else {
-                        socket.emit('chatMessage', { user: 'System', msg: 'Merge failed! Pet lost.', time: Date.now() });
-                        player.pet = null;
-                    }
-                } else {
-                    socket.emit('chatMessage', { user: 'System', msg: `You can only merge pets of the same rarity! You have ${currentPet ? currentPet.displayName : 'none'}.`, time: Date.now() });
-                    player.coins += item.cost; // Refund
-                }
-            } else {
-                player.pet = data.item;
-                socket.emit('chatMessage', { user: 'System', msg: `You bought ${item.displayName}!`, time: Date.now() });
-            }
-        } else if (item.type === 'gem') {
-            player.gems += 1;
-            socket.emit('chatMessage', { user: 'System', msg: `You bought 1x ${item.displayName}!`, time: Date.now() });
-        }
-        db.savePlayer(loggedInUser, player);
-        io.emit('playerListUpdate');
     });
 
     socket.on('usePromo', (data) => {
@@ -1436,17 +1369,19 @@ io.on('connection', (socket) => {
 
 });
 
-// ── Start server ──────────────────────────────────────────────
-server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-});
+// ── Start server (tylko przy bezpośrednim uruchomieniu) ──────
+if (require.main === module) {
+    server.listen(PORT, () => {
+        console.log(`Server running on port ${PORT}`);
 
-// ── Start bot (jeśli ENABLE_BOT=true i ROBLOX_COOKIE ustawione) ─
-if (process.env.ENABLE_BOT === 'true') {
-    console.log('[SERVER] ENABLE_BOT=true — uruchamiam bota...');
-    startBot();
-} else {
-    console.log('[SERVER] Bot pominięty (ENABLE_BOT!=true lub nieustawione)');
+        // ── Start bot (jeśli ENABLE_BOT=true i ROBLOX_COOKIE ustawione) ─
+        if (process.env.ENABLE_BOT === 'true') {
+            console.log('[SERVER] ENABLE_BOT=true — uruchamiam bota...');
+            startBot();
+        } else {
+            console.log('[SERVER] Bot pominięty (ENABLE_BOT!=true lub nieustawione)');
+        }
+    });
 }
 
 // ── Graceful shutdown ──────────────────────────────────────────
@@ -1463,14 +1398,13 @@ function shutdown() {
         clearTimeout(timer);
     }
     socketActivityTimers.clear();
-    server.close(() => {
-        console.log('Server closed.');
-        process.exit(0);
-    });
+    try { server.close(); } catch (e) { /* ignore */ }
 }
 
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
+if (require.main === module) {
+    process.on('SIGTERM', shutdown);
+    process.on('SIGINT', shutdown);
+}
 
 module.exports = { app, server, db, pf, games };
 

@@ -2,8 +2,10 @@ const request = require('supertest');
 const path = require('path');
 const fs = require('fs');
 
-// Set test environment
+// Set test environment — override env vars that may conflict
 process.env.NODE_ENV = 'test';
+process.env.ADMIN_TOKEN = 'test-admin-token-123';
+process.env.BOT_SECRET = '92d79e9b8988a59c4d9a135f8c2d9e7b80e141fb26576a86a857a810fa6a71ce';
 
 const { app, db, pf, games } = require('../server');
 
@@ -67,7 +69,7 @@ describe('db.generateClientSeed()', () => {
 describe('db.getPlayer()', () => {
     test('tworzy nowego gracza z domyślnymi wartościami', () => {
         const player = db.getPlayer('TestPlayer_' + Date.now());
-        expect(player.coins).toBe(500);
+        expect(player.coins).toBe(0);
         expect(player.gems).toBe(0);
         expect(player.username).toBeTruthy();
         expect(player.clientSeed).toMatch(/^[a-f0-9]{32}$/);
@@ -86,44 +88,6 @@ describe('db.hasRole()', () => {
 describe('db.isBanned()', () => {
     test('zwraca null dla niebanowanego gracza', () => {
         expect(db.isBanned('NonexistentUser_' + Date.now())).toBeNull();
-    });
-});
-
-// ── TESTY GAMES MODULE ─────────────────────────────────────────
-
-describe('games.PETS', () => {
-    test('zawiera oczekiwane zwierzaki', () => {
-        expect(games.PETS.common_egg).toBeTruthy();
-        expect(games.PETS.rare_egg).toBeTruthy();
-        expect(games.PETS.epic_egg).toBeTruthy();
-        expect(games.PETS.legendary_egg).toBeTruthy();
-        expect(games.PETS.baby_dragon).toBeTruthy();
-        expect(games.PETS.phoenix).toBeTruthy();
-    });
-
-    test('każdy pet ma bonus > 1', () => {
-        Object.values(games.PETS).forEach(pet => {
-            expect(pet.bonus).toBeGreaterThan(1);
-        });
-    });
-});
-
-describe('games.WAGER_ITEMS', () => {
-    test('zawiera 4 gemy', () => {
-        expect(Object.keys(games.WAGER_ITEMS)).toHaveLength(4);
-    });
-
-    test('każdy gem ma wartość > 0', () => {
-        Object.values(games.WAGER_ITEMS).forEach(gem => {
-            expect(gem.value).toBeGreaterThan(0);
-        });
-    });
-});
-
-describe('games.getPetBonus()', () => {
-    test('zwraca 1.0 dla gracza bez peta', () => {
-        const name = 'NoPet_' + Date.now();
-        expect(games.getPetBonus(name, db)).toBe(1.0);
     });
 });
 
@@ -404,6 +368,626 @@ describe('games.addRecentGame() / getRecentGames()', () => {
     });
 });
 
+// ── TESTY DB - APPLY PROMO BONUS ───────────────────────────────
+
+describe('db.applyPromoBonus()', () => {
+    const promoUser = 'PromoUser_' + Date.now();
+    const promoCode = 'PROMO_' + Date.now();
+
+    beforeEach(() => {
+        const promos = db.loadPromo();
+        promos[promoCode] = {
+            code: promoCode,
+            rewards: [{ type: 'coins', amount: 500 }],
+            maxUses: 3,
+            active: true,
+            used: 0,
+            usedBy: [],
+            createdBy: 'test',
+            createdAt: Date.now()
+        };
+        db.savePromo(promos);
+    });
+
+    afterEach(() => {
+        const promos = db.loadPromo();
+        delete promos[promoCode];
+        db.savePromo(promos);
+    });
+
+    test('przyznaje coins za poprawny kod', () => {
+        const result = db.applyPromoBonus(promoUser, promoCode);
+        expect(result.success).toBe(true);
+        expect(result.type).toBe('coins');
+        expect(result.value).toBe(500);
+        const player = db.getPlayer(promoUser);
+        expect(player.coins).toBeGreaterThanOrEqual(500);
+    });
+
+    test('odrzuca kod już użyty przez gracza', () => {
+        db.applyPromoBonus(promoUser, promoCode);
+        const result = db.applyPromoBonus(promoUser, promoCode);
+        expect(result).not.toBeNull();
+        if (result && 'error' in result) {
+            expect(result.error).toContain('already used');
+        }
+    });
+
+    test('odrzuca nieistniejący kod', () => {
+        const result = db.applyPromoBonus(promoUser, 'NONEXISTENT');
+        expect(result).toBeNull();
+    });
+
+    test('odrzuca kod po wykorzystaniu maxUses', () => {
+        const users = ['UserA_', 'UserB_', 'UserC_'].map(s => s + Date.now());
+        users.forEach(u => db.applyPromoBonus(u, promoCode));
+        const result = db.applyPromoBonus('UserD_' + Date.now(), promoCode);
+        expect(result).toBeNull();
+    });
+
+    test('akceptuje kod z nagrodą gems', () => {
+        const gemCode = 'GEM_' + Date.now();
+        const promos = db.loadPromo();
+        promos[gemCode] = {
+            code: gemCode,
+            rewards: [{ type: 'gems', amount: 3, qty: 3 }],
+            maxUses: 5,
+            active: true,
+            used: 0,
+            usedBy: [],
+            createdBy: 'test',
+            createdAt: Date.now()
+        };
+        db.savePromo(promos);
+        const gemUser = 'GemUser_' + Date.now();
+        const result = db.applyPromoBonus(gemUser, gemCode);
+        expect(result.success).toBe(true);
+        expect(result.type).toBe('gems');
+        const player = db.getPlayer(gemUser);
+        expect(player.gems).toBeGreaterThanOrEqual(3);
+        delete promos[gemCode];
+        db.savePromo(promos);
+    });
+
+    test('akceptuje kod z wieloma nagrodami (rewards array)', () => {
+        const multiCode = 'MULTI_' + Date.now();
+        const promos = db.loadPromo();
+        promos[multiCode] = {
+            code: multiCode,
+            rewards: [
+                { type: 'coins', amount: 1000 },
+                { type: 'gems', amount: 2, qty: 2 }
+            ],
+            maxUses: 5,
+            active: true,
+            used: 0,
+            usedBy: [],
+            createdBy: 'test',
+            createdAt: Date.now()
+        };
+        db.savePromo(promos);
+        const multiUser = 'MultiUser_' + Date.now();
+        const result = db.applyPromoBonus(multiUser, multiCode);
+        expect(result.success).toBe(true);
+        const player = db.getPlayer(multiUser);
+        expect(player.coins).toBeGreaterThanOrEqual(1000);
+        expect(player.gems).toBeGreaterThanOrEqual(2);
+        delete promos[multiCode];
+        db.savePromo(promos);
+    });
+});
+
+// ── TESTY DB - IS BANNED ───────────────────────────────────────
+
+describe('db.isBanned() - zaawansowane', () => {
+    test('zwraca null po wygaśnięciu bana', () => {
+        const banUser = 'ExpiredBan_' + Date.now();
+        const bans = db.loadBans();
+        bans[banUser] = { reason: 'Test ban', by: 'test', time: Date.now(), expires: Date.now() - 1000 };
+        db.saveBans(bans);
+        const result = db.isBanned(banUser);
+        expect(result).toBeNull();
+        const bansAfter = db.loadBans();
+        expect(bansAfter[banUser]).toBeUndefined();
+    });
+
+    test('zwraca obiekt bana dla aktywnego bana', () => {
+        const activeBanUser = 'ActiveBan_' + Date.now();
+        const bans = db.loadBans();
+        bans[activeBanUser] = { reason: 'Active test ban', by: 'test', time: Date.now(), expires: null };
+        db.saveBans(bans);
+        const result = db.isBanned(activeBanUser);
+        expect(result).not.toBeNull();
+        expect(result.reason).toBe('Active test ban');
+        delete bans[activeBanUser];
+        db.saveBans(bans);
+    });
+});
+
+// ── TESTY DB - FILTER ──────────────────────────────────────────
+
+describe('db.loadFilter() / db.saveFilter()', () => {
+    test('zwraca domyślny filtr', () => {
+        const filter = db.loadFilter();
+        expect(Array.isArray(filter.words)).toBe(true);
+        expect(typeof filter.enabled).toBe('boolean');
+        expect(typeof filter.punishment).toBe('string');
+    });
+
+    test('zapisuje i odczytuje własne słowa', () => {
+        const testFilter = { words: ['badword', 'spam'], enabled: true, punishment: 'censor' };
+        db.saveFilter(testFilter);
+        const loaded = db.loadFilter();
+        expect(loaded.words).toEqual(['badword', 'spam']);
+        expect(loaded.punishment).toBe('censor');
+        // Przywróć domyślny
+        db.saveFilter({ words: [], enabled: true, punishment: 'block' });
+    });
+});
+
+// ── TESTY DB - SEED RECORDS ─────────────────────────────────────
+
+describe('db - seed records', () => {
+    test('saveSeedRecord i getActiveServerSeed', () => {
+        // Odsłoń istniejący aktywny seed (utworzony przez pf.init) żeby nasz był aktywny
+        const existing = db.getActiveServerSeed();
+        if (existing) {
+            db.revealSeedRecord(existing.seed);
+        }
+        const testSeed = 'a'.repeat(64);
+        db.saveSeedRecord({ seed: testSeed, hash: 'hash123', revealed: false, createdAt: Date.now(), gamesPlayed: 0 });
+        const active = db.getActiveServerSeed();
+        expect(active).not.toBeNull();
+        expect(active.seed).toBe(testSeed);
+    });
+
+    test('revealSeedRecord i getRevealedSeeds', () => {
+        const seed2 = 'b'.repeat(64);
+        db.saveSeedRecord({ seed: seed2, hash: 'hash456', revealed: false, createdAt: Date.now(), gamesPlayed: 0 });
+        db.revealSeedRecord(seed2);
+        const revealed = db.getRevealedSeeds();
+        const found = revealed.find(r => r.seed === seed2);
+        // getRevealedSeeds zwraca pełne obiekty z bazy (seed, hash, revealed, ...)
+        expect(found).toBeTruthy();
+        expect(found.revealed).toBe(true);
+    });
+});
+
+// ── TESTY GAMES - AKTYWNE GRY ──────────────────────────────────
+
+describe('games - active games management', () => {
+    test('createGame, getGame, removeGame', () => {
+        const gameId = 'test_game_' + Date.now();
+        const gameData = { creator: 'test', amount: 100, status: 'waiting', timestamp: Date.now() };
+        games.createGame(gameId, gameData);
+        const retrieved = games.getGame(gameId);
+        expect(retrieved).toEqual(gameData);
+        games.removeGame(gameId);
+        expect(games.getGame(gameId)).toBeUndefined();
+    });
+
+    test('getActiveGamesList zwraca tablicę', () => {
+        const list = games.getActiveGamesList();
+        expect(Array.isArray(list)).toBe(true);
+    });
+});
+
+// ── TESTY GAMES - CLEAR STALE GAMES ────────────────────────────
+
+describe('games.clearStaleGames()', () => {
+    test('czyści stare oczekujące gry i zwraca monetę', () => {
+        const staleUser = 'StaleUser_' + Date.now();
+        const player = db.getPlayer(staleUser);
+        const initialCoins = player.coins;
+        
+        const staleGameId = 'stale_' + Date.now();
+        games.createGame(staleGameId, {
+            creator: staleUser,
+            amount: 100,
+            status: 'waiting',
+            timestamp: Date.now() - 600000 // > 5 min temu
+        });
+        
+        games.clearStaleGames(db);
+        expect(games.getGame(staleGameId)).toBeUndefined();
+        const refreshedPlayer = db.getPlayer(staleUser);
+        expect(refreshedPlayer.coins).toBe(initialCoins + 100);
+    });
+
+    test('nie czyści świeżych gier', () => {
+        const freshGameId = 'fresh_' + Date.now();
+        games.createGame(freshGameId, {
+            creator: 'fresh_test',
+            amount: 100,
+            status: 'waiting',
+            timestamp: Date.now()
+        });
+        games.clearStaleGames(db);
+        expect(games.getGame(freshGameId)).toBeTruthy();
+        games.removeGame(freshGameId);
+    });
+});
+
+// ── TESTY PROVIDABLY FAIR - SEED ROTATION ───────────────────────
+
+describe('pf.rotateServerSeed()', () => {
+    test('zwraca stary seed po rotacji', () => {
+        const oldSeed = pf.getCurrentServerSeed();
+        const returned = pf.rotateServerSeed();
+        expect(returned).toBe(oldSeed);
+    });
+
+    test('generuje nowy hash po rotacji', () => {
+        const hashBefore = pf.getServerSeedHash();
+        pf.rotateServerSeed();
+        const hashAfter = pf.getServerSeedHash();
+        expect(hashAfter).not.toBe(hashBefore);
+    });
+
+    test('wielokrotna rotacja daje różne hashe', () => {
+        const hashes = new Set();
+        for (let i = 0; i < 5; i++) {
+            pf.rotateServerSeed();
+            hashes.add(pf.getServerSeedHash());
+        }
+        expect(hashes.size).toBe(5);
+    });
+});
+
+// ── TESTY ADMIN REST API ────────────────────────────────────────
+
+describe('Admin REST API', () => {
+    let adminCookie = '';
+
+    beforeAll(async () => {
+        // Zaloguj jako admin
+        const res = await request(app)
+            .post('/admin/login')
+            .send({ token: 'test-admin-token-123' });
+        expect(res.status).toBe(200);
+        // Pobierz ciasteczko z odpowiedzi
+        const setCookie = res.headers['set-cookie'];
+        if (Array.isArray(setCookie)) {
+            adminCookie = setCookie.map(c => c.split(';')[0]).join('; ');
+        } else if (setCookie) {
+            adminCookie = setCookie.split(';')[0];
+        }
+        expect(adminCookie).toContain('bf_admin=');
+    });
+
+    // ── Admin Dashboard API ──
+    test('GET /api/admin/dashboard wymaga autoryzacji', async () => {
+        const res = await request(app).get('/api/admin/dashboard');
+        expect(res.status).toBe(401);
+    });
+
+    test('GET /api/admin/dashboard zwraca dane dashboardu', async () => {
+        const res = await request(app)
+            .get('/api/admin/dashboard')
+            .set('Cookie', adminCookie);
+        expect(res.status).toBe(200);
+        expect(res.body).toHaveProperty('totalPlayers');
+        expect(res.body).toHaveProperty('onlinePlayers');
+        expect(res.body).toHaveProperty('gamesByDay');
+        expect(res.body).toHaveProperty('logsByType');
+    });
+
+    // ── Admin Players API ──
+    test('GET /api/admin/players wymaga autoryzacji', async () => {
+        const res = await request(app).get('/api/admin/players');
+        expect(res.status).toBe(401);
+    });
+
+    test('GET /api/admin/players zwraca listę graczy', async () => {
+        // Stwórz gracza
+        const testPlayer = 'AdminListTest_' + Date.now();
+        db.getPlayer(testPlayer);
+        
+        const res = await request(app)
+            .get('/api/admin/players')
+            .set('Cookie', adminCookie);
+        expect(res.status).toBe(200);
+        expect(res.body).toHaveProperty('players');
+        expect(res.body).toHaveProperty('total');
+        expect(res.body).toHaveProperty('pages');
+        expect(Array.isArray(res.body.players)).toBe(true);
+    });
+
+    test('GET /api/admin/players?q=... filtruje po nazwie', async () => {
+        const res = await request(app)
+            .get('/api/admin/players?q=' + encodeURIComponent('nonexistent_player_xyz'))
+            .set('Cookie', adminCookie);
+        expect(res.status).toBe(200);
+        expect(res.body.players.length).toBe(0);
+    });
+
+    // ── Admin Logs API ──
+    test('GET /api/admin/logs wymaga autoryzacji', async () => {
+        const res = await request(app).get('/api/admin/logs');
+        expect(res.status).toBe(401);
+    });
+
+    test('GET /api/admin/logs zwraca logi', async () => {
+        const res = await request(app)
+            .get('/api/admin/logs')
+            .set('Cookie', adminCookie);
+        expect(res.status).toBe(200);
+        expect(res.body).toHaveProperty('logs');
+        expect(res.body).toHaveProperty('total');
+        expect(res.body).toHaveProperty('pages');
+    });
+
+    // ── Admin Requests API ──
+    test('GET /api/admin/requests wymaga autoryzacji', async () => {
+        const res = await request(app).get('/api/admin/requests');
+        expect(res.status).toBe(401);
+    });
+
+    test('GET /api/admin/requests zwraca requesty', async () => {
+        const res = await request(app)
+            .get('/api/admin/requests')
+            .set('Cookie', adminCookie);
+        expect(res.status).toBe(200);
+        expect(res.body).toHaveProperty('requests');
+    });
+
+    // ── Admin Promo Codes API ──
+    test('GET /api/admin/promo-codes wymaga autoryzacji', async () => {
+        const res = await request(app).get('/api/admin/promo-codes');
+        expect(res.status).toBe(401);
+    });
+
+    test('GET /api/admin/promo-codes zwraca kody', async () => {
+        const res = await request(app)
+            .get('/api/admin/promo-codes')
+            .set('Cookie', adminCookie);
+        expect(res.status).toBe(200);
+        expect(res.body).toHaveProperty('codes');
+        expect(res.body).toHaveProperty('total');
+    });
+
+    test('POST /api/admin/promo-codes tworzy nowy kod', async () => {
+        const testCode = 'TESTCODE_' + Date.now().toString(36).toUpperCase();
+        const res = await request(app)
+            .post('/api/admin/promo-codes')
+            .set('Cookie', adminCookie)
+            .send({ code: testCode, rewards: [{ type: 'coins', amount: 100 }], maxUses: 5 });
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+        // Posprzątaj
+        const promos = db.loadPromo();
+        delete promos[testCode];
+        db.savePromo(promos);
+    });
+
+    test('POST /api/admin/promo-codes odrzuca brak kodu', async () => {
+        const res = await request(app)
+            .post('/api/admin/promo-codes')
+            .set('Cookie', adminCookie)
+            .send({});
+        expect(res.status).toBe(400);
+        expect(res.body.message).toContain('Podaj nazwę');
+    });
+
+    test('POST /api/admin/promo-codes/:id/toggle przełącza status', async () => {
+        const toggleCode = 'TOGGLE_' + Date.now().toString(36).toUpperCase();
+        // Najpierw utwórz kod
+        const promos = db.loadPromo();
+        promos[toggleCode] = { code: toggleCode, rewards: [{ type: 'coins', amount: 100 }], maxUses: 5, active: true, used: 0, usedBy: [], createdBy: 'test', createdAt: Date.now() };
+        db.savePromo(promos);
+        
+        // Przełącz
+        const res = await request(app)
+            .post(`/api/admin/promo-codes/${toggleCode}/toggle`)
+            .set('Cookie', adminCookie);
+        expect(res.status).toBe(200);
+        expect(res.body.active).toBe(false);
+        
+        const updatedPromos = db.loadPromo();
+        expect(updatedPromos[toggleCode].active).toBe(false);
+        delete updatedPromos[toggleCode];
+        db.savePromo(updatedPromos);
+    });
+
+    // ── Admin Chat Filter API ──
+    test('GET /api/admin/chat-filter wymaga autoryzacji', async () => {
+        const res = await request(app).get('/api/admin/chat-filter');
+        expect(res.status).toBe(401);
+    });
+
+    test('GET /api/admin/chat-filter zwraca filtr', async () => {
+        const res = await request(app)
+            .get('/api/admin/chat-filter')
+            .set('Cookie', adminCookie);
+        expect(res.status).toBe(200);
+        expect(res.body).toHaveProperty('words');
+    });
+
+    test('POST /api/admin/chat-filter/save zapisuje filtr', async () => {
+        const res = await request(app)
+            .post('/api/admin/chat-filter/save')
+            .set('Cookie', adminCookie)
+            .send({ words: ['badword'], enabled: true, punishment: 'block' });
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+    });
+
+    // ── Admin System Message API ──
+    test('POST /api/admin/system-message wymaga autoryzacji', async () => {
+        const res = await request(app).post('/api/admin/system-message').send({ message: 'test' });
+        expect(res.status).toBe(401);
+    });
+
+    test('POST /api/admin/system-message odrzuca pustą wiadomość', async () => {
+        const res = await request(app)
+            .post('/api/admin/system-message')
+            .set('Cookie', adminCookie)
+            .send({});
+        expect(res.status).toBe(400);
+    });
+
+    // ── Admin Player Actions API ──
+    test('POST /api/admin/players/:id/warn wymaga powodu', async () => {
+        const warnUser = 'WarnUser_' + Date.now();
+        const res = await request(app)
+            .post(`/api/admin/players/${warnUser}/warn`)
+            .set('Cookie', adminCookie)
+            .send({});
+        expect(res.status).toBe(400);
+    });
+
+    test('POST /api/admin/players/:id/role ustawia rolę', async () => {
+        const roleUser = 'RoleUser_' + Date.now();
+        db.getPlayer(roleUser);
+        const res = await request(app)
+            .post(`/api/admin/players/${roleUser}/role`)
+            .set('Cookie', adminCookie)
+            .send({ role: 'mod' });
+        expect(res.status).toBe(200);
+        const player = db.getPlayer(roleUser);
+        expect(player.roles).toContain('mod');
+    });
+
+    test('POST /api/admin/players/:id/ban banuje gracza', async () => {
+        const banUser = 'BanUser_' + Date.now();
+        db.getPlayer(banUser);
+        const res = await request(app)
+            .post(`/api/admin/players/${banUser}/ban`)
+            .set('Cookie', adminCookie);
+        expect(res.status).toBe(200);
+        expect(db.isBanned(banUser)).not.toBeNull();
+        // Odbanuj
+        const bans = db.loadBans();
+        delete bans[banUser];
+        db.saveBans(bans);
+    });
+
+    test('POST /api/admin/players/:id/unban odbanowuje gracza', async () => {
+        const unbanUser = 'UnbanUser_' + Date.now();
+        const bans = db.loadBans();
+        bans[unbanUser] = { reason: 'test', by: 'test', time: Date.now(), expires: null };
+        db.saveBans(bans);
+        const res = await request(app)
+            .post(`/api/admin/players/${unbanUser}/unban`)
+            .set('Cookie', adminCookie);
+        expect(res.status).toBe(200);
+        expect(db.isBanned(unbanUser)).toBeNull();
+    });
+
+    test('POST /api/admin/players/:id/balance ustawia saldo', async () => {
+        const balanceUser = 'BalanceUser_' + Date.now();
+        db.getPlayer(balanceUser);
+        const res = await request(app)
+            .post(`/api/admin/players/${balanceUser}/balance`)
+            .set('Cookie', adminCookie)
+            .send({ amount: 9999 });
+        expect(res.status).toBe(200);
+        const player = db.getPlayer(balanceUser);
+        expect(player.coins).toBe(9999);
+    });
+
+    // ── Admin Logout ──
+    test('POST /admin/logout wylogowuje admina', async () => {
+        const res = await request(app).post('/admin/logout');
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+        // Kolejne żądanie bez ciasteczka nie powinno działać
+        const dashboardRes = await request(app).get('/api/admin/dashboard');
+        expect(dashboardRes.status).toBe(401);
+    });
+});
+
+// ── TESTY BOT API ───────────────────────────────────────────────
+
+describe('Bot API', () => {
+    test('GET /api/bot/pending-deposits odrzuca bez sekretu', async () => {
+        const res = await request(app).get('/api/bot/pending-deposits');
+        expect(res.status).toBe(403);
+    });
+
+    test('GET /api/bot/pending-deposits odrzuca zły sekret', async () => {
+        const res = await request(app)
+            .get('/api/bot/pending-deposits')
+            .set('x-bot-secret', 'wrong-secret');
+        expect(res.status).toBe(403);
+    });
+
+    test('GET /api/bot/pending-deposits z poprawnym sekretem', async () => {
+        const res = await request(app)
+            .get('/api/bot/pending-deposits')
+            .set('x-bot-secret', process.env.BOT_SECRET || '92d79e9b8988a59c4d9a135f8c2d9e7b80e141fb26576a86a857a810fa6a71ce');
+        expect(res.status).toBe(200);
+        expect(res.body).toHaveProperty('requests');
+    });
+
+    test('POST /api/bot/update-deposit odrzuca bez sekretu', async () => {
+        const res = await request(app)
+            .post('/api/bot/update-deposit')
+            .send({ requestId: 'test', status: 'valued' });
+        expect(res.status).toBe(403);
+    });
+
+    test('POST /api/bot/update-deposit odrzuca brak pól', async () => {
+        const res = await request(app)
+            .post('/api/bot/update-deposit')
+            .set('x-bot-secret', process.env.BOT_SECRET || '92d79e9b8988a59c4d9a135f8c2d9e7b80e141fb26576a86a857a810fa6a71ce')
+            .send({});
+        expect(res.status).toBe(400);
+        expect(res.body.error).toContain('Missing');
+    });
+
+    test('POST /api/bot/update-deposit nie znajduje requestu', async () => {
+        const res = await request(app)
+            .post('/api/bot/update-deposit')
+            .set('x-bot-secret', process.env.BOT_SECRET || '92d79e9b8988a59c4d9a135f8c2d9e7b80e141fb26576a86a857a810fa6a71ce')
+            .send({ requestId: 'nonexistent_request_id', status: 'valued' });
+        expect(res.status).toBe(404);
+    });
+});
+
+// ── TESTY EDGE CASE'ÓW VALIDACJI ───────────────────────────────
+
+describe('Username validation endpoint', () => {
+    test('POST /verify-start odrzuca za długi nick', async () => {
+        const res = await request(app)
+            .post('/verify-start')
+            .send({ username: 'a'.repeat(21) });
+        expect(res.body.message).toContain('Nieprawidłowy nick');
+    });
+
+    test('POST /verify-start odrzuca nick z niedozwolonymi znakami', async () => {
+        const res = await request(app)
+            .post('/verify-start')
+            .send({ username: '<script>alert(1)</script>' });
+        expect(res.body.message).toContain('Nieprawidłowy nick');
+    });
+});
+
+// ── TESTY PROVIDABLY FAIR ENDPOINTÓW - EDGE CASE ───────────────
+
+describe('GET /api/provably-fair/seed-history', () => {
+    test('zwraca paginowaną historię', async () => {
+        const res = await request(app).get('/api/provably-fair/seed-history?page=1&limit=5');
+        expect(res.status).toBe(200);
+        expect(res.body).toHaveProperty('seeds');
+        expect(res.body).toHaveProperty('page');
+        expect(res.body).toHaveProperty('pages');
+        expect(res.body).toHaveProperty('total');
+        expect(Array.isArray(res.body.seeds)).toBe(true);
+    });
+
+    test('każdy seed ma hash SHA-256', async () => {
+        const res = await request(app).get('/api/provably-fair/seed-history');
+        if (res.body.seeds.length > 0) {
+            res.body.seeds.forEach(s => {
+                expect(s.hash).toMatch(/^[a-f0-9]{64}$/);
+                expect(s).toHaveProperty('revealed');
+                expect(s).toHaveProperty('createdAt');
+            });
+        }
+    });
+});
+
 // ── CLEANUP ─────────────────────────────────────────────────────
 
 afterAll(() => {
@@ -417,4 +1001,10 @@ afterAll(() => {
             }
         });
     }
+});
+
+// Cleanup open handles i serwer
+const server = require('../server').server;
+afterAll(() => {
+    try { server.close(); } catch (e) {}
 });

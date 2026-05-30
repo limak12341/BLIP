@@ -46,10 +46,9 @@ function getPlayer(username) {
     if (!players[username]) {
         players[username] = {
             username,
-            coins: 500,
+            coins: 0,
             gems: 0,
             registered: Date.now(),
-            lastDaily: 0,
             totalWagered: 0,
             totalWon: 0,
             gamesPlayed: 0,
