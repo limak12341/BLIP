@@ -35,6 +35,12 @@ services:
       - key: SERVER_URL
         value: https://blip-79s3.onrender.com
         sync: false
+      # ── SENTRY (monitoring błędów) ───────────────────────────
+      # Utwórz konto na sentry.io → utwórz projekt Node.js → skopiuj DSN
+      - key: SENTRY_DSN
+        value: https://examplePublicKey@o0.ingest.sentry.io/0
+        sync: false
+
       # ── REDIS (automatycznie podpięty) ────────────────────────
       - key: REDIS_URL
         fromService:

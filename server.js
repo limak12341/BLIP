@@ -1,3 +1,7 @@
+// ── Sentry instrumentation (MUSI być pierwszym require) ─────
+// Jeśli SENTRY_DSN nie jest ustawiony, działa jako no-op
+const Sentry = require('./instrument');
+
 try { require('dotenv').config(); } catch (e) { /* dotenv optional */ }
 
 const express = require('express');
@@ -1787,9 +1791,16 @@ if (require.main === module) {
     process.on('SIGINT', shutdown);
 }
 
+// ── Sentry error handler (MUSI być przed globalnym error handlerem) ──
+if (process.env.SENTRY_DSN) {
+    Sentry.setupExpressErrorHandler(app);
+}
+
 // ── Global error handler middleware (MUSI być na końcu wszystkich route'ów!) ──
 app.use((err, req, res, next) => {
-    console.error('UNHANDLED ERROR:', err);
+    if (!process.env.SENTRY_DSN) {
+        console.error('UNHANDLED ERROR:', err);
+    }
     res.status(500).json({ error: 'Internal server error' });
 });
 
