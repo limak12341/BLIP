@@ -2487,7 +2487,8 @@ body::before {
 }
 
 /* ════════════════════════════════════════════
-/* ── Floating chat open button (visible when chat collapsed on desktop) ── */
+   FLOATING CHAT BUTTON
+   ════════════════════════════════════════════ */
 .chat-open-floating {
   display: flex;
   position: fixed;
@@ -2531,6 +2532,9 @@ body::before {
   .chat-open-floating { display: none !important; }
 }
 
+/* ════════════════════════════════════════════
+/* ════════════════════════════════════════════ */
+/* ════════════════════════════════════════════
    ROLE BADGES
    ════════════════════════════════════════════ */
 .role-badge {
@@ -4308,4 +4312,7 @@ body.sidebar-mobile-open {
   margin-top: 8px;
 }
 .admin-verify-result.success {
-  backgro
+  background: rgba(46,213,115,.1);
+  color: var(--green);
+  border: 1px solid rgba(46,213,115,.25);
+}
