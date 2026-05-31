@@ -1942,6 +1942,9 @@ socket.on('recentGamesUpdated', (games) => {
 
 // ── SYSTEM MESSAGE TOAST ────────────────────────────────────────
 socket.on('systemMessage', (msg) => {
+n    // ObsluÄ… takÅ¼e string jak i obiekt { message: "..." }
+    const text = (typeof msg === "string" || typeof msg === "number") ? String(msg) : (msg?.message || "");
+    if (!text) return;
     // Usuń stary toast jeśli istnieje
     const old = document.getElementById('sys-toast');
     if (old) old.remove();
@@ -1952,7 +1955,7 @@ socket.on('systemMessage', (msg) => {
         <div class="sys-toast-icon">📢</div>
         <div class="sys-toast-body">
             <div class="sys-toast-title">Ogłoszenie serwera</div>
-            <div class="sys-toast-text">${escapeHtml(msg.message)}</div>
+            <div class="sys-toast-text">${escapeHtml(text)}</div>
         </div>
         <button class="sys-toast-close" onclick="this.parentElement.remove()">✕</button>
     `;

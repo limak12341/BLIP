@@ -36,6 +36,9 @@ function cleanRateLimits() {
     for (const [key, entry] of socketRateLimits) {
         if (now > entry.resetAt) socketRateLimits.delete(key);
     }
+    for (const [key, entry] of loginAttempts) {
+        if (now > entry.resetAt) loginAttempts.delete(key);
+    }
     for (const [key, entry] of adminLoginAttempts) {
         if (now > entry.resetAt) adminLoginAttempts.delete(key);
     }
@@ -1053,6 +1056,8 @@ io.on('connection', (socket) => {
                 }
                 // Mark game as active for disconnect handling
                 game.status = 'active';
+                game.opponent = loggedInUser;
+                game.opponentSocket = socket.id;
                 // Join existing game - use Provably Fair
                 const serverSeed = pf.getCurrentServerSeed();
                 const clientSeed = player.clientSeed;
@@ -1710,6 +1715,9 @@ io.on('connection', (socket) => {
 if (require.main === module) {
     server.listen(PORT, () => {
         console.log(`Server running on port ${PORT}`);
+
+        // ── Periodic cleanup: stale games ──
+        setInterval(() => games.clearStaleGames(db), 300000); // co 5 min
 
         // ── Start bot (jeśli ENABLE_BOT=true i ROBLOX_COOKIE ustawione) ─
         if (process.env.ENABLE_BOT === 'true') {

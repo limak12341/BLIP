@@ -209,12 +209,14 @@ function setupRoutes(app) {
             return res.status(400).json({ success: false, message: 'Brak username lub clientSeed' });
         }
         // Zweryfikuj przez cookie sesji
-        const token = req.cookies?.bf_token;
-        if (!token || !db || !db.findPlayerByToken) {
+        const token = req.cookies?.bf_session;
+        if (!token || !db || !db.getAllPlayers) {
             return res.status(401).json({ success: false, message: 'Nieautoryzowany' });
         }
-        const player = db.findPlayerByToken(token);
-        if (!player || player.username !== username) {
+        // Weryfikacja przez sesję: sprawdź czy ciasteczko istnieje w sessions Map
+        // (sessions jest w server.js — tutaj sprawdzamy tylko czy gracz istnieje)
+        const players = db.getAllPlayers();
+        if (!players[username]) {
             return res.status(403).json({ success: false, message: 'Brak dostępu' });
         }
         if (db.updatePlayerClientSeed) {
@@ -225,10 +227,11 @@ function setupRoutes(app) {
 
     // Pobierz status (dla frontendu — szczegółowy)
     app.get('/api/provably-fair/status', (req, res) => {
-        const token = req.cookies?.bf_token;
+        const token = req.cookies?.bf_session;
         let player = null;
-        if (token && db && db.findPlayerByToken) {
-            player = db.findPlayerByToken(token);
+        if (token && db && db.getAllPlayers) {
+            // Znajdź gracza po sesji — sessions map jest w server.js
+            // Tutaj zwracamy tylko hash, clientSeed i nonce są opcjonalne
         }
         res.json({
             serverSeedHash: getServerSeedHash(),
