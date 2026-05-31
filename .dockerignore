@@ -1,0 +1,36 @@
+# ── Zależności (instalujemy w Dockerze) ──
+node_modules/
+npm-debug.log*
+
+# ── Git ──
+.git/
+.gitignore
+.gitattributes
+
+# ── Środowisko i konfig lokalna ──
+.env
+.env.*
+!.env.example
+
+# ── Dane (persystencja przez volume) ──
+data/
+
+# ── Testy (niepotrzebne w produkcji) ──
+tests/
+test-results/
+*.test-result/
+playwright-report/
+playwright.config.js
+
+# ── Pliki tymczasowe i lokalne ──
+.DS_Store
+Thumbs.db
+*.log
+nul
+nui1
+worker.js
+tmp/
+
+# ── Dokumentacja i inne ──
+*.md
+*.mdx

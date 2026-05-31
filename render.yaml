@@ -1,8 +1,11 @@
 services:
   - type: web
     name: bflip
+    # ── UWAGA: Wybierz metodę deploymentu ──
+    # Opcja 1 (Node buildpack — obecna): runtime: node, buildCommand, startCommand
+    # Opcja 2 (Docker — odkomentuj poniżej): usuń runtime/buildCommand/startCommand, Render auto-wykryje Dockerfile
     runtime: node
-    plan: free
+    plan: starter  # ⚠️ Redis wymaga płatnego planu (Starter od $7/mies.)
     buildCommand: npm install
     startCommand: npm start
     envVars:
@@ -21,12 +24,17 @@ services:
         value: 92d79e9b8988a59c4d9a135f8c2d9e7b80e141fb26576a86a857a810fa6a71ce
         sync: false
       - key: SERVER_URL
-        value: https://blip-79s3.onrender.com  # Po deployu → wklej swój URL z Render
+        value: https://blip-79s3.onrender.com
         sync: false
-      # ── REDIS (do wyższej wydajności) ────────────────────────
-      # Jeśli chcesz użyć Redis (płatny dodatek na Render), odkomentuj:
-      # - key: REDIS_URL
-      #   fromService:
-      #     type: redis
-      #     name: redis-bflip
-      #     property: connectionString
+      # ── REDIS (automatycznie podpięty) ────────────────────────
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: redis-bflip
+          property: connectionString
+
+  # ── REDIS SERVICE ────────────────────────────────────────────
+  - type: redis
+    name: redis-bflip
+    plan: starter  # Redis wymaga co najmniej planu Starter
+    maxmemoryPolicy: allkeys-lru  # Automatyczne usuwanie starych kluczy
