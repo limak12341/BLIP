@@ -55,8 +55,34 @@ function getRecentGames() {
     return recentGames;
 }
 
+// ── PVP Game History (permanent storage) ──
+const MAX_PVP_HISTORY = 200;
+const pvpHistory = [];
+
+function addPvpGame(gameData) {
+    pvpHistory.unshift({
+        ...gameData,
+        timestamp: Date.now()
+    });
+    if (pvpHistory.length > MAX_PVP_HISTORY) {
+        pvpHistory.length = MAX_PVP_HISTORY;
+    }
+}
+
+function getPvpHistory(username) {
+    return pvpHistory.filter(g =>
+        g.creator && g.joiner &&
+        (g.creator.username === username || g.joiner.username === username)
+    );
+}
+
+function getAllPvpHistory() {
+    return pvpHistory;
+}
+
 module.exports = {
     activeGames, getActiveGames, getActiveGamesList, getGame,
     createGame, removeGame, clearStaleGames,
-    addRecentGame, getRecentGames, MAX_RECENT_GAMES
+    addRecentGame, getRecentGames, MAX_RECENT_GAMES,
+    addPvpGame, getPvpHistory, getAllPvpHistory, MAX_PVP_HISTORY
 };
