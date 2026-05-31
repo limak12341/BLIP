@@ -11,8 +11,11 @@ const cookieParser = require('cookie-parser');
 
 // ── Rate limiting ────────────────────────────────────────────
 const loginAttempts = new Map(); // ip -> { count, resetAt }
-const MAX_LOGIN_ATTEMPTS = process.env.NODE_ENV === 'test' ? 100 : 5;
+const MAX_LOGIN_ATTEMPTS = process.env.NODE_ENV === 'test' ? 100 : 25;
 const LOGIN_WINDOW_MS = 10000;
+const MAX_LOGIN_PER_USER = process.env.NODE_ENV === 'test' ? 100 : 15;
+const LOGIN_USER_WINDOW_MS = 10000;
+const loginPerUser = new Map(); // username -> { count, resetAt }
 
 // ── Admin login rate limiting ───────────────────────────────────
 const adminLoginAttempts = new Map(); // ip -> { count, resetAt }
@@ -38,6 +41,9 @@ function cleanRateLimits() {
     }
     for (const [key, entry] of loginAttempts) {
         if (now > entry.resetAt) loginAttempts.delete(key);
+    }
+    for (const [key, entry] of loginPerUser) {
+        if (now > entry.resetAt) loginPerUser.delete(key);
     }
     for (const [key, entry] of adminLoginAttempts) {
         if (now > entry.resetAt) adminLoginAttempts.delete(key);
@@ -817,23 +823,37 @@ io.on('connection', (socket) => {
     socket.emit('chatHistory', chatHistory.slice(-100).map(normalizeChatMsg));
 
     socket.on('login', (data) => {
-        // Rate limiting
+        // Rate limiting (per-IP)
         const ip = socket.handshake?.address || 'unknown';
         const now = Date.now();
-        let attempt = loginAttempts.get(ip);
-        if (!attempt || now > attempt.resetAt) {
-            attempt = { count: 0, resetAt: now + LOGIN_WINDOW_MS };
-            loginAttempts.set(ip, attempt);
+        let ipAttempt = loginAttempts.get(ip);
+        if (!ipAttempt || now > ipAttempt.resetAt) {
+            ipAttempt = { count: 0, resetAt: now + LOGIN_WINDOW_MS };
+            loginAttempts.set(ip, ipAttempt);
         }
-        attempt.count++;
-        if (attempt.count > MAX_LOGIN_ATTEMPTS) {
-            const retryAfter = Math.ceil((attempt.resetAt - now) / 1000);
+        ipAttempt.count++;
+        if (ipAttempt.count > MAX_LOGIN_ATTEMPTS) {
+            const retryAfter = Math.ceil((ipAttempt.resetAt - now) / 1000);
             socket.emit('loginError', { message: `Too many attempts. Try again in ${retryAfter}s.` });
             return;
         }
-
-        const username = (data.username || '').trim();
         
+        // Rate limiting (per-username) — zapobiega blokowaniu IP przez wielu userów
+        const username = (data.username || '').trim();
+        if (username) {
+            let userAttempt = loginPerUser.get(username.toLowerCase());
+            if (!userAttempt || now > userAttempt.resetAt) {
+                userAttempt = { count: 0, resetAt: now + LOGIN_USER_WINDOW_MS };
+                loginPerUser.set(username.toLowerCase(), userAttempt);
+            }
+            userAttempt.count++;
+            if (userAttempt.count > MAX_LOGIN_PER_USER) {
+                const retryAfter = Math.ceil((userAttempt.resetAt - now) / 1000);
+                socket.emit('loginError', { message: `Too many attempts for this username. Try again in ${retryAfter}s.` });
+                return;
+            }
+        }
+
         // Validate username
         if (!validateUsername(username)) {
             socket.emit('loginError', { message: 'Invalid username (2-20 chars, letters/numbers/underscores/hyphens only).' });
@@ -1559,9 +1579,19 @@ io.on('connection', (socket) => {
 
     // ── PVP Game History ──
     socket.on('getHistory', () => {
-        if (!loggedInUser) return;
-        const history = games.getPvpHistory(loggedInUser);
-        socket.emit('historyData', history);
+        if (!loggedInUser) {
+            console.warn('[getHistory] No loggedInUser for socket', socket.id);
+            socket.emit('historyData', []);
+            return;
+        }
+        try {
+            const history = games.getPvpHistory(loggedInUser);
+            console.log('[getHistory]', loggedInUser, '->', Array.isArray(history) ? history.length + ' records' : 'invalid');
+            socket.emit('historyData', Array.isArray(history) ? history : []);
+        } catch (err) {
+            console.error('[getHistory] Error for', loggedInUser, ':', err.message);
+            socket.emit('historyData', []);
+        }
     });
 
     // ── Chat History (refresh) ──

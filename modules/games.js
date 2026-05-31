@@ -1,4 +1,25 @@
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+
+// ── Persistent data directory ──
+const DATA_DIR = path.join(__dirname, '..', 'data');
+const PVP_HISTORY_FILE = path.join(DATA_DIR, 'pvpHistory.json');
+
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
+function loadJson(filePath, defaultVal) {
+    try {
+        if (fs.existsSync(filePath)) {
+            return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        }
+    } catch (e) { /* ignore */ }
+    return defaultVal;
+}
+
+function saveJson(filePath, data) {
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+}
 
 // ── Active Games Management ──
 const activeGames = {};
@@ -57,7 +78,11 @@ function getRecentGames() {
 
 // ── PVP Game History (permanent storage) ──
 const MAX_PVP_HISTORY = 200;
-const pvpHistory = [];
+let pvpHistory = loadJson(PVP_HISTORY_FILE, []);
+
+function savePvpHistory() {
+    saveJson(PVP_HISTORY_FILE, pvpHistory);
+}
 
 function addPvpGame(gameData) {
     pvpHistory.unshift({
@@ -67,13 +92,22 @@ function addPvpGame(gameData) {
     if (pvpHistory.length > MAX_PVP_HISTORY) {
         pvpHistory.length = MAX_PVP_HISTORY;
     }
+    savePvpHistory();
 }
 
 function getPvpHistory(username) {
-    return pvpHistory.filter(g =>
-        g.creator && g.joiner &&
-        (g.creator.username === username || g.joiner.username === username)
-    );
+    if (!username) return [];
+    try {
+        return (pvpHistory || []).filter(g => {
+            if (!g) return false;
+            const creatorName = typeof g.creator === 'string' ? g.creator : (g.creator?.username || '');
+            const joinerName = typeof g.joiner === 'string' ? g.joiner : (g.joiner?.username || '');
+            return creatorName === username || joinerName === username;
+        });
+    } catch (err) {
+        console.error('[getPvpHistory] Error:', err.message);
+        return [];
+    }
 }
 
 function getAllPvpHistory() {
