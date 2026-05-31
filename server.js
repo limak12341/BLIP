@@ -1512,6 +1512,41 @@ io.on('connection', (socket) => {
         socket.emit('leaderboardData', sorted);
     });
 
+    // ── Cancel PVP Game (creator only, waiting status) ──
+    socket.on('cancelGame', (data) => {
+        if (!loggedInUser) {
+            socket.emit('gameCancelled', { success: false, error: 'Not logged in.' });
+            return;
+        }
+        const gameId = data?.gameId;
+        if (!gameId) {
+            socket.emit('gameCancelled', { success: false, error: 'No game ID provided.' });
+            return;
+        }
+        const game = games.activeGames[gameId];
+        if (!game) {
+            socket.emit('gameCancelled', { success: false, error: 'Game not found.' });
+            return;
+        }
+        if (game.creator !== loggedInUser) {
+            socket.emit('gameCancelled', { success: false, error: 'You are not the creator of this game.' });
+            return;
+        }
+        if (game.status !== 'waiting') {
+            socket.emit('gameCancelled', { success: false, error: 'Game already started or finished.' });
+            return;
+        }
+        // Refund coins
+        const player = db.getPlayer(loggedInUser);
+        player.coins += game.amount;
+        db.savePlayer(loggedInUser, player);
+        // Remove game
+        delete games.activeGames[gameId];
+        socket.emit('gameCancelled', { success: true, amount: game.amount });
+        io.emit('gameListUpdate', Object.values(games.activeGames));
+        io.emit('playerListUpdate');
+    });
+
     // ── Live Feed: send recent games on request ──
     socket.on('getRecentGames', () => {
         socket.emit('recentGamesUpdated', games.getRecentGames());

@@ -780,6 +780,360 @@ describe('Socket.io - admin akcje', () => {
     });
 });
 
+// ── SOCKET.IO - PVP COINFLIP ──────────────────────────────────────
+
+describe('Socket.io - PVP coinflip', () => {
+
+    async function loginAndFund(socket, username, coins = 1000000) {
+        await new Promise((resolve, reject) => {
+            const t = setTimeout(() => reject(new Error('Timeout login')), 4000);
+            socket.once('loginSuccess', () => { clearTimeout(t); resolve(); });
+            socket.emit('login', { username });
+        });
+        const db = require('../server').db;
+        const p = db.getPlayer(username);
+        p.coins = coins;
+        db.savePlayer(username, p);
+        await new Promise(r => setTimeout(r, 600)); // cooldown
+    }
+
+    test('createGame — tworzy oczekującą grę PVP', async () => {
+        const { socket } = await createSocket();
+        try {
+            const username = 'PVP1_' + Date.now();
+            await loginAndFund(socket, username);
+
+            const data = await new Promise((resolve, reject) => {
+                const t = setTimeout(() => reject(new Error('Timeout coinflipResult')), 5000);
+                socket.once('coinflipResult', (d) => { clearTimeout(t); resolve(d); });
+                socket.emit('coinflip', { amount: 100, choice: 'heads', findGame: true });
+            });
+
+            expect(data.waiting).toBe(true);
+            expect(data.gameId).toBeDefined();
+            expect(data.amount).toBe(100);
+
+            // Verify game exists in activeGames
+            const games = require('../server').games;
+            const game = games.activeGames[data.gameId];
+            expect(game).toBeDefined();
+            expect(game.creator).toBe(username);
+            expect(game.status).toBe('waiting');
+            expect(game.amount).toBe(100);
+
+            // Clean up - cancel the game
+            if (data.gameId) {
+                socket.emit('cancelGame', { gameId: data.gameId });
+                await new Promise(r => setTimeout(r, 100));
+            }
+        } finally {
+            closeSocket(socket);
+        }
+    });
+
+    test('cancelGame — anuluje oczekującą grę i zwraca monety', async () => {
+        const { socket } = await createSocket();
+        try {
+            const username = 'PVP2_' + Date.now();
+            await loginAndFund(socket, username, 5000);
+
+            // Get initial coins
+            const db = require('../server').db;
+            const initialCoins = db.getPlayer(username).coins;
+
+            // Create game (100 coins deducted)
+            const createResult = await new Promise((resolve, reject) => {
+                const t = setTimeout(() => reject(new Error('Timeout')), 5000);
+                socket.once('coinflipResult', (d) => { clearTimeout(t); resolve(d); });
+                socket.emit('coinflip', { amount: 100, choice: 'tails', findGame: true });
+            });
+
+            expect(createResult.waiting).toBe(true);
+            // Should have deducted 100 coins
+            expect(db.getPlayer(username).coins).toBe(initialCoins - 100);
+
+            // Cancel the game
+            const cancelResult = await new Promise((resolve, reject) => {
+                const t = setTimeout(() => reject(new Error('Timeout cancelGame')), 4000);
+                socket.once('gameCancelled', (d) => { clearTimeout(t); resolve(d); });
+                socket.emit('cancelGame', { gameId: createResult.gameId });
+            });
+
+            expect(cancelResult.success).toBe(true);
+            expect(cancelResult.amount).toBe(100);
+            // Coins should be refunded
+            expect(db.getPlayer(username).coins).toBe(initialCoins);
+        } finally {
+            closeSocket(socket);
+        }
+    });
+
+    test('cancelGame — nie może anulować nie swojej gry', async () => {
+        const { socket: s1 } = await createSocket();
+        const { socket: s2 } = await createSocket();
+        try {
+            const user1 = 'PCA1_' + Date.now();
+            const user2 = 'PCA2_' + Date.now();
+            await Promise.all([
+                loginAndFund(s1, user1),
+                loginAndFund(s2, user2)
+            ]);
+
+            // User1 creates a game
+            const createResult = await new Promise((resolve, reject) => {
+                const t = setTimeout(() => reject(new Error('Timeout')), 5000);
+                s1.once('coinflipResult', (d) => { clearTimeout(t); resolve(d); });
+                s1.emit('coinflip', { amount: 50, choice: 'heads', findGame: true });
+            });
+
+            // User2 tries to cancel User1's game
+            const cancelResult = await new Promise((resolve, reject) => {
+                const t = setTimeout(() => reject(new Error('Timeout cancelGame')), 4000);
+                s2.once('gameCancelled', (d) => { clearTimeout(t); resolve(d); });
+                s2.emit('cancelGame', { gameId: createResult.gameId });
+            });
+
+            expect(cancelResult.success).toBe(false);
+            expect(cancelResult.error).toContain('not the creator');
+
+            // Clean up - User1 cancels
+            await new Promise((resolve, reject) => {
+                const t = setTimeout(() => reject(new Error('Timeout')), 4000);
+                s1.once('gameCancelled', () => { clearTimeout(t); resolve(); });
+                s1.emit('cancelGame', { gameId: createResult.gameId });
+            });
+        } finally {
+            closeSocket(s1);
+            closeSocket(s2);
+        }
+    });
+
+    test('cancelGame — nie może anulować gry po jej rozpoczęciu', async () => {
+        const { socket } = await createSocket();
+        try {
+            const username = 'PCA3_' + Date.now();
+            await loginAndFund(socket, username);
+
+            // Create a game
+            const createResult = await new Promise((resolve, reject) => {
+                const t = setTimeout(() => reject(new Error('Timeout')), 5000);
+                socket.once('coinflipResult', (d) => { clearTimeout(t); resolve(d); });
+                socket.emit('coinflip', { amount: 30, choice: 'heads', findGame: true });
+            });
+
+            // Manually change game status to 'active' (simulating someone joined)
+            const games = require('../server').games;
+            if (games.activeGames[createResult.gameId]) {
+                games.activeGames[createResult.gameId].status = 'active';
+            }
+
+            // Try to cancel
+            const cancelResult = await new Promise((resolve, reject) => {
+                const t = setTimeout(() => reject(new Error('Timeout')), 4000);
+                socket.once('gameCancelled', (d) => { clearTimeout(t); resolve(d); });
+                socket.emit('cancelGame', { gameId: createResult.gameId });
+            });
+
+            expect(cancelResult.success).toBe(false);
+            expect(cancelResult.error).toContain('already started');
+
+            // Clean up
+            delete games.activeGames[createResult.gameId];
+        } finally {
+            closeSocket(socket);
+        }
+    });
+
+    test('joinGame — dwaj gracze, PVP coinflip resolves', async () => {
+        const { socket: s1 } = await createSocket();
+        const { socket: s2 } = await createSocket();
+        try {
+            const user1 = 'PVPJ1_' + Date.now();
+            const user2 = 'PVPJ2_' + Date.now();
+            await Promise.all([
+                loginAndFund(s1, user1),
+                loginAndFund(s2, user2)
+            ]);
+
+            // User1 creates a PVP game
+            await new Promise((resolve, reject) => {
+                const t = setTimeout(() => reject(new Error('Timeout create')), 5000);
+                s1.once('coinflipResult', (d) => { clearTimeout(t); resolve(d); });
+                s1.emit('coinflip', { amount: 100, choice: 'heads', findGame: true });
+            });
+
+            await new Promise(r => setTimeout(r, 300));
+
+            // Set up s1's listener BEFORE s2 joins (avoid race condition)
+            const s1ResultPromise = new Promise((resolve, reject) => {
+                const t = setTimeout(() => reject(new Error('Timeout s1 result')), 5000);
+                s1.once('coinflipResult', (d) => { clearTimeout(t); resolve(d); });
+            });
+
+            // Also set up provably fair promises before join
+            const pfPromise1 = new Promise((resolve, reject) => {
+                const t = setTimeout(() => reject(new Error('Timeout pf1')), 4000);
+                s1.once('provablyFairResult', (d) => { clearTimeout(t); resolve(d); });
+            });
+            const pfPromise2 = new Promise((resolve, reject) => {
+                const t = setTimeout(() => reject(new Error('Timeout pf2')), 4000);
+                s2.once('provablyFairResult', (d) => { clearTimeout(t); resolve(d); });
+            });
+
+            // User2 joins with same amount
+            const s2Result = await new Promise((resolve, reject) => {
+                const t = setTimeout(() => reject(new Error('Timeout join')), 5000);
+                s2.once('coinflipResult', (d) => { clearTimeout(t); resolve(d); });
+                s2.emit('coinflip', { amount: 100, choice: 'tails', findGame: true });
+            });
+
+            // User2 should have a result (win or lose)
+            expect(s2Result).toHaveProperty('win');
+            expect(s2Result).toHaveProperty('amount');
+            expect(s2Result).toHaveProperty('opponent');
+            expect(s2Result.gameOver).toBe(true);
+
+            // User1 should have also received a result (as opponent)
+            const s1Result = await s1ResultPromise;
+
+            expect(s1Result).toHaveProperty('win');
+            expect(s1Result).toHaveProperty('opponent');
+            expect(s1Result.gameOver).toBe(true);
+
+            // Verify winners/losers are different
+            expect(s1Result.win).not.toBe(s2Result.win);
+
+            // Verify provably fair data was sent
+            const [pf1, pf2] = await Promise.all([pfPromise1, pfPromise2]);
+
+            expect(pf1).toHaveProperty('serverSeed');
+            expect(pf1).toHaveProperty('clientSeed');
+            expect(pf1).toHaveProperty('nonce');
+            expect(pf1).toHaveProperty('result');
+            expect(pf2).toHaveProperty('serverSeed');
+            expect(pf2).toHaveProperty('clientSeed');
+        } finally {
+            closeSocket(s1);
+            closeSocket(s2);
+        }
+    }, 15000); // longer timeout for 2 player interaction
+
+    test('joinGame — odrzuca gdy kwoty się nie zgadzają', async () => {
+        const { socket: s1 } = await createSocket();
+        const { socket: s2 } = await createSocket();
+        try {
+            const user1 = 'PVPM1_' + Date.now();
+            const user2 = 'PVPM2_' + Date.now();
+            await Promise.all([
+                loginAndFund(s1, user1),
+                loginAndFund(s2, user2)
+            ]);
+
+            // User1 creates game with 100 coins
+            await new Promise((resolve, reject) => {
+                const t = setTimeout(() => reject(new Error('Timeout')), 5000);
+                s1.once('coinflipResult', (d) => { clearTimeout(t); resolve(d); });
+                s1.emit('coinflip', { amount: 100, choice: 'heads', findGame: true });
+            });
+
+            await new Promise(r => setTimeout(r, 300));
+
+            // User2 tries to join with different amount
+            const result = await new Promise((resolve, reject) => {
+                const t = setTimeout(() => reject(new Error('Timeout')), 5000);
+                s2.once('coinflipResult', (d) => { clearTimeout(t); resolve(d); });
+                s2.emit('coinflip', { amount: 200, choice: 'tails', findGame: true });
+            });
+
+            expect(result.win).toBe(false);
+            expect(result.error).toContain('mismatch');
+
+            // Clean up - cancel the game
+            const games = require('../server').games;
+            const gameId = Object.keys(games.activeGames).find(id => {
+                const g = games.activeGames[id];
+                return g.creator === user1 && g.status === 'waiting';
+            });
+            if (gameId) {
+                s1.emit('cancelGame', { gameId });
+                await new Promise(r => setTimeout(r, 100));
+            }
+        } finally {
+            closeSocket(s1);
+            closeSocket(s2);
+        }
+    });
+
+    test('getHistory — zwraca historię PVP po grze', async () => {
+        const { socket: s1 } = await createSocket();
+        const { socket: s2 } = await createSocket();
+        try {
+            const user1 = 'PVPH1_' + Date.now();
+            const user2 = 'PVPH2_' + Date.now();
+            await Promise.all([
+                loginAndFund(s1, user1),
+                loginAndFund(s2, user2)
+            ]);
+
+            // User1 creates
+            await new Promise((resolve, reject) => {
+                const t = setTimeout(() => reject(new Error('Timeout')), 5000);
+                s1.once('coinflipResult', (d) => { clearTimeout(t); resolve(d); });
+                s1.emit('coinflip', { amount: 50, choice: 'heads', findGame: true });
+            });
+
+            await new Promise(r => setTimeout(r, 300));
+
+            // Set up listeners BEFORE user2 joins (avoid race condition)
+            const s1GamePromise = new Promise((resolve) => {
+                s1.once('coinflipResult', () => setTimeout(resolve, 200));
+            });
+            const s2GamePromise = new Promise((resolve) => {
+                s2.once('coinflipResult', () => setTimeout(resolve, 200));
+            });
+
+            // User2 joins
+            s2.emit('coinflip', { amount: 50, choice: 'tails', findGame: true });
+
+            // Wait for both results
+            await Promise.all([s1GamePromise, s2GamePromise]);
+
+            // Wait for history to be recorded
+            await new Promise(r => setTimeout(r, 300));
+
+            // Check history for user1
+            const history1 = await new Promise((resolve, reject) => {
+                const t = setTimeout(() => reject(new Error('Timeout history1')), 4000);
+                s1.once('historyData', (d) => { clearTimeout(t); resolve(d); });
+                s1.emit('getHistory');
+            });
+
+            expect(Array.isArray(history1)).toBe(true);
+            expect(history1.length).toBeGreaterThanOrEqual(1);
+            expect(history1[0]).toHaveProperty('creator');
+            expect(history1[0].creator.username).toBe(user1);
+            expect(history1[0]).toHaveProperty('joiner');
+            expect(history1[0].joiner.username).toBe(user2);
+            expect(history1[0]).toHaveProperty('totalValue');
+            expect(history1[0].totalValue).toBe(100);
+
+            // Check history for user2
+            const history2 = await new Promise((resolve, reject) => {
+                const t = setTimeout(() => reject(new Error('Timeout history2')), 4000);
+                s2.once('historyData', (d) => { clearTimeout(t); resolve(d); });
+                s2.emit('getHistory');
+            });
+
+            expect(Array.isArray(history2)).toBe(true);
+            expect(history2.length).toBeGreaterThanOrEqual(1);
+        } finally {
+            closeSocket(s1);
+            closeSocket(s2);
+        }
+    }, 15000);
+});
+
+
 // ── SOCKET.IO - RATE LIMITING ───────────────────────────────────
 
 describe('Socket.io - rate limiting (chat)', () => {
