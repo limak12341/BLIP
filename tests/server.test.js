@@ -988,6 +988,466 @@ describe('GET /api/provably-fair/seed-history', () => {
     });
 });
 
+// ── TESTY PLAYER REST API (profile, leaderboard, deposit, inventory, promo) ──
+
+describe('Player REST API', () => {
+    let sessionCookie = '';
+    const testUser = 'REST_' + Date.now().toString(36).toUpperCase();
+
+    beforeAll(async () => {
+        // Zaloguj użytkownika przez verify flow
+        await request(app)
+            .post('/verify-start')
+            .send({ username: testUser });
+
+        const checkRes = await request(app)
+            .post('/verify-check')
+            .send({ username: testUser });
+        expect(checkRes.status).toBe(200);
+        expect(checkRes.body.success).toBe(true);
+
+        const setCookie = checkRes.headers['set-cookie'];
+        if (Array.isArray(setCookie)) {
+            sessionCookie = setCookie.map(c => c.split(';')[0]).join('; ');
+        } else if (setCookie) {
+            sessionCookie = setCookie.split(';')[0];
+        }
+        expect(sessionCookie).toContain('bf_session=');
+
+        // Daj graczowi trochę monet dla testów
+        const player = db.getPlayer(testUser);
+        player.coins = 10000;
+        db.savePlayer(testUser, player);
+    });
+
+    // ── GET /api/profile/stats ──
+    describe('GET /api/profile/stats', () => {
+        test('odrzuca bez autoryzacji', async () => {
+            const res = await request(app).get('/api/profile/stats');
+            expect(res.status).toBe(401);
+        });
+
+        test('zwraca statystyki profilu', async () => {
+            const res = await request(app)
+                .get('/api/profile/stats')
+                .set('Cookie', sessionCookie);
+            expect(res.status).toBe(200);
+            expect(res.body).toHaveProperty('total');
+            expect(res.body).toHaveProperty('wins');
+            expect(res.body).toHaveProperty('losses');
+            expect(res.body).toHaveProperty('profit');
+            expect(res.body).toHaveProperty('level');
+            expect(res.body).toHaveProperty('levelName');
+            expect(res.body).toHaveProperty('coins');
+            expect(res.body).toHaveProperty('gems');
+        });
+    });
+
+    // ── GET /api/profile/public/:userId ──
+    describe('GET /api/profile/public/:userId', () => {
+        test('zwraca 404 dla nieistniejącego gracza', async () => {
+            const res = await request(app)
+                .get('/api/profile/public/NonexistentUser_' + Date.now());
+            expect(res.status).toBe(404);
+            expect(res.body.error).toContain('Player not found');
+        });
+
+        test('zwraca publiczny profil istniejącego gracza', async () => {
+            const res = await request(app)
+                .get('/api/profile/public/' + testUser);
+            expect(res.status).toBe(200);
+            expect(res.body).toHaveProperty('username');
+            expect(res.body).toHaveProperty('total');
+            expect(res.body).toHaveProperty('wins');
+            expect(res.body).toHaveProperty('losses');
+            expect(res.body).toHaveProperty('profit');
+            expect(res.body).toHaveProperty('balance');
+            expect(res.body).toHaveProperty('gems');
+            expect(res.body).toHaveProperty('level');
+            expect(res.body).toHaveProperty('levelName');
+            expect(res.body.username).toBe(testUser);
+        });
+    });
+
+    // ── POST /api/profile/:userId/tip ──
+    describe('POST /api/profile/:userId/tip', () => {
+        const tipTarget = 'TipTarget_' + Date.now();
+
+        beforeAll(() => {
+            db.getPlayer(tipTarget); // ensure exists
+        });
+
+        test('odrzuca bez autoryzacji', async () => {
+            const res = await request(app)
+                .post('/api/profile/' + tipTarget + '/tip')
+                .send({ amount: 100 });
+            expect(res.status).toBe(401);
+        });
+
+        test('odrzuca nieprawidłową kwotę', async () => {
+            const res = await request(app)
+                .post('/api/profile/' + tipTarget + '/tip')
+                .set('Cookie', sessionCookie)
+                .send({ amount: 0 });
+            expect(res.body.ok).toBe(false);
+        });
+
+        test('wysyła tip', async () => {
+            const senderBefore = db.getPlayer(testUser);
+            const targetBefore = db.getPlayer(tipTarget);
+
+            const res = await request(app)
+                .post('/api/profile/' + tipTarget + '/tip')
+                .set('Cookie', sessionCookie)
+                .send({ amount: 500 });
+            expect(res.status).toBe(200);
+            expect(res.body.ok).toBe(true);
+
+            const senderAfter = db.getPlayer(testUser);
+            const targetAfter = db.getPlayer(tipTarget);
+            expect(senderAfter.coins).toBe(senderBefore.coins - 500);
+            expect(targetAfter.coins).toBe(targetBefore.coins + 500);
+        });
+    });
+
+    // ── GET /api/leaderboard ──
+    describe('GET /api/leaderboard', () => {
+        test('zwraca ranking graczy', async () => {
+            const res = await request(app).get('/api/leaderboard');
+            expect(res.status).toBe(200);
+            expect(res.body).toHaveProperty('leaderboard');
+            expect(Array.isArray(res.body.leaderboard)).toBe(true);
+        });
+
+        test('leaderboard zawiera poprawne pola', async () => {
+            const res = await request(app).get('/api/leaderboard');
+            if (res.body.leaderboard.length > 0) {
+                const entry = res.body.leaderboard[0];
+                expect(entry).toHaveProperty('username');
+                expect(entry).toHaveProperty('wins');
+                expect(entry).toHaveProperty('losses');
+                expect(entry).toHaveProperty('profit');
+            }
+        });
+    });
+
+    // ── POST /api/promo/redeem ──
+    describe('POST /api/promo/redeem', () => {
+        const promoCode = 'REDEEMTEST_' + Date.now().toString(36).toUpperCase();
+
+        beforeAll(() => {
+            const promos = db.loadPromo();
+            promos[promoCode] = {
+                code: promoCode,
+                rewards: [{ type: 'coins', amount: 1000 }],
+                maxUses: 5,
+                active: true,
+                used: 0,
+                usedBy: [],
+                createdBy: 'test',
+                createdAt: Date.now()
+            };
+            db.savePromo(promos);
+        });
+
+        afterAll(() => {
+            const promos = db.loadPromo();
+            delete promos[promoCode];
+            db.savePromo(promos);
+        });
+
+        test('odrzuca bez autoryzacji', async () => {
+            const res = await request(app)
+                .post('/api/promo/redeem')
+                .send({ code: promoCode });
+            expect(res.status).toBe(401);
+        });
+
+        test('odrzuca brak kodu', async () => {
+            const res = await request(app)
+                .post('/api/promo/redeem')
+                .set('Cookie', sessionCookie)
+                .send({});
+            expect(res.body.success).toBe(false);
+            expect(res.body.message).toContain('Podaj kod');
+        });
+
+        test('odrzuca nieistniejący kod', async () => {
+            const res = await request(app)
+                .post('/api/promo/redeem')
+                .set('Cookie', sessionCookie)
+                .send({ code: 'NONEXISTENT' });
+            expect(res.body.success).toBe(false);
+            expect(res.body.message).toContain('Nieprawidłowy');
+        });
+
+        test('realizuje poprawny kod promocyjny', async () => {
+            const coinsBefore = db.getPlayer(testUser).coins;
+
+            const res = await request(app)
+                .post('/api/promo/redeem')
+                .set('Cookie', sessionCookie)
+                .send({ code: promoCode });
+            expect(res.body.success).toBe(true);
+
+            const coinsAfter = db.getPlayer(testUser).coins;
+            expect(coinsAfter).toBe(coinsBefore + 1000);
+        });
+
+        test('odrzuca już użyty kod', async () => {
+            const res = await request(app)
+                .post('/api/promo/redeem')
+                .set('Cookie', sessionCookie)
+                .send({ code: promoCode });
+            expect(res.body.success).toBe(false);
+        });
+    });
+
+    // ── GET /api/inventory ──
+    describe('GET /api/inventory', () => {
+        test('odrzuca bez autoryzacji', async () => {
+            const res = await request(app).get('/api/inventory');
+            expect(res.status).toBe(401);
+        });
+
+        test('zwraca pusty inventory', async () => {
+            const res = await request(app)
+                .get('/api/inventory')
+                .set('Cookie', sessionCookie);
+            expect(res.status).toBe(200);
+            expect(res.body).toHaveProperty('items');
+            expect(Array.isArray(res.body.items)).toBe(true);
+        });
+
+        test('zwraca inventory z przedmiotami', async () => {
+            db.addInventoryItem(testUser, 'Huge Cat', 2, 50000);
+            const res = await request(app)
+                .get('/api/inventory')
+                .set('Cookie', sessionCookie);
+            expect(res.status).toBe(200);
+            const cat = res.body.items.find(i => i.name === 'Huge Cat');
+            expect(cat).toBeTruthy();
+            expect(cat.qty).toBe(2);
+        });
+    });
+
+    // ── GET /api/inventory/with-rap ──
+    describe('GET /api/inventory/with-rap', () => {
+        test('zwraca inventory z RAP', async () => {
+            const res = await request(app)
+                .get('/api/inventory/with-rap')
+                .set('Cookie', sessionCookie);
+            expect(res.status).toBe(200);
+            expect(res.body).toHaveProperty('items');
+            expect(Array.isArray(res.body.items)).toBe(true);
+            if (res.body.items.length > 0) {
+                expect(res.body.items[0]).toHaveProperty('rap');
+            }
+        });
+    });
+
+    // ── GET /api/pets/search ──
+    describe('GET /api/pets/search', () => {
+        test('zwraca wszystkie pety bez query', async () => {
+            const res = await request(app).get('/api/pets/search');
+            expect(res.status).toBe(200);
+            expect(res.body).toHaveProperty('results');
+            expect(Array.isArray(res.body.results)).toBe(true);
+            expect(res.body.results.length).toBeGreaterThan(0);
+        });
+
+        test('filtruje po nazwie', async () => {
+            const res = await request(app).get('/api/pets/search?q=Huge');
+            expect(res.status).toBe(200);
+            expect(res.body.results.every(p => p.name.toLowerCase().includes('huge'))).toBe(true);
+        });
+
+        test('filtruje po kategorii', async () => {
+            const res = await request(app).get('/api/pets/search?category=Gem');
+            expect(res.status).toBe(200);
+            expect(res.body.results.every(p => p.category === 'Gem')).toBe(true);
+        });
+
+        test('ogranicza wyniki', async () => {
+            const res = await request(app).get('/api/pets/search?q=Cat&limit=1');
+            expect(res.status).toBe(200);
+            expect(res.body.results.length).toBeLessThanOrEqual(1);
+        });
+
+        test('zwraca pety z RAP', async () => {
+            const res = await request(app).get('/api/pets/search?q=Huge+Cat');
+            expect(res.status).toBe(200);
+            if (res.body.results.length > 0) {
+                expect(res.body.results[0]).toHaveProperty('rap');
+                expect(typeof res.body.results[0].rap).toBe('number');
+            }
+        });
+    });
+
+    // ── POST /api/deposit/request ──
+    describe('POST /api/deposit/request', () => {
+        test('odrzuca bez autoryzacji', async () => {
+            const res = await request(app)
+                .post('/api/deposit/request')
+                .send({ items: [{ name: 'Huge Cat', qty: 1 }] });
+            expect(res.status).toBe(401);
+        });
+
+        test('odrzuca brak itemów', async () => {
+            const res = await request(app)
+                .post('/api/deposit/request')
+                .set('Cookie', sessionCookie)
+                .send({});
+            expect(res.status).toBe(400);
+            expect(res.body.error).toContain('No items');
+        });
+
+        test('tworzy request depozytu', async () => {
+            const res = await request(app)
+                .post('/api/deposit/request')
+                .set('Cookie', sessionCookie)
+                .send({ items: [{ name: 'Huge Cat', qty: 1 }], note: 'Test deposit' });
+            expect(res.status).toBe(200);
+            expect(res.body.success).toBe(true);
+            expect(res.body).toHaveProperty('requestId');
+
+            // Sprawdź czy request został zapisany
+            const requests = db.loadRequests();
+            const found = requests.find(r => r._id === res.body.requestId);
+            expect(found).toBeTruthy();
+            expect(found.username).toBe(testUser);
+            expect(found.type).toBe('deposit');
+        });
+    });
+
+    // ── POST /api/withdraw/request ──
+    describe('POST /api/withdraw/request', () => {
+        test('odrzuca bez autoryzacji', async () => {
+            const res = await request(app)
+                .post('/api/withdraw/request')
+                .send({ items: [{ name: 'Huge Cat', qty: 1 }] });
+            expect(res.status).toBe(401);
+        });
+
+        test('odrzuca brak itemów', async () => {
+            const res = await request(app)
+                .post('/api/withdraw/request')
+                .set('Cookie', sessionCookie)
+                .send({});
+            expect(res.status).toBe(400);
+            expect(res.body.error).toContain('No items');
+        });
+
+        test('odrzuca gdy brak itemów w inventarzu', async () => {
+            const res = await request(app)
+                .post('/api/withdraw/request')
+                .set('Cookie', sessionCookie)
+                .send({ items: [{ name: 'Nonexistent Item', qty: 1 }] });
+            expect(res.status).toBe(400);
+            expect(res.body.error).toContain('Not enough');
+        });
+
+        test('tworzy request wypłaty i usuwa itemy z inventarza', async () => {
+            // Najpierw dodaj item do inventarza
+            db.addInventoryItem(testUser, 'Huge Dog', 3, 45000);
+
+            const res = await request(app)
+                .post('/api/withdraw/request')
+                .set('Cookie', sessionCookie)
+                .send({ items: [{ name: 'Huge Dog', qty: 2 }], note: 'Test withdraw' });
+            expect(res.status).toBe(200);
+            expect(res.body.success).toBe(true);
+            expect(res.body).toHaveProperty('requestId');
+
+            // Sprawdź czy item został usunięty z inventarza
+            const inv = db.getInventory(testUser);
+            const dog = inv.find(i => i.name === 'Huge Dog');
+            expect(dog.qty).toBe(1); // 3 - 2 = 1
+
+            // Sprawdź czy request został zapisany
+            const requests = db.loadRequests();
+            const found = requests.find(r => r._id === res.body.requestId);
+            expect(found).toBeTruthy();
+            expect(found.username).toBe(testUser);
+            expect(found.type).toBe('withdraw');
+        });
+    });
+
+    // ── GET /api/requests ──
+    describe('GET /api/requests', () => {
+        test('odrzuca bez autoryzacji', async () => {
+            const res = await request(app).get('/api/requests');
+            expect(res.status).toBe(401);
+        });
+
+        test('zwraca requesty użytkownika', async () => {
+            const res = await request(app)
+                .get('/api/requests')
+                .set('Cookie', sessionCookie);
+            expect(res.status).toBe(200);
+            expect(res.body).toHaveProperty('requests');
+            expect(Array.isArray(res.body.requests)).toBe(true);
+            expect(res.body.requests.length).toBeGreaterThanOrEqual(2); // deposit + withdraw
+
+            // Wszystkie requesty należą do testUser
+            res.body.requests.forEach(r => {
+                expect(r.username).toBe(testUser);
+            });
+        });
+    });
+
+    // ── POST /api/gems/merge ──
+    describe('POST /api/gems/merge', () => {
+        test('odrzuca bez autoryzacji', async () => {
+            const res = await request(app)
+                .post('/api/gems/merge')
+                .send({ recipe: 0 });
+            expect(res.status).toBe(401);
+        });
+
+        test('odrzuca nieprawidłowy recipe index', async () => {
+            const res = await request(app)
+                .post('/api/gems/merge')
+                .set('Cookie', sessionCookie)
+                .send({});
+            expect(res.body.ok).toBe(false);
+        });
+
+        test('odrzuca gdy brak gemów do mergowania', async () => {
+            const res = await request(app)
+                .post('/api/gems/merge')
+                .set('Cookie', sessionCookie)
+                .send({ recipe: 0 }); // potrzebuje 10x Gem 💎 1M
+            expect(res.body.ok).toBe(false);
+            expect(res.body.message).toContain('Need');
+        });
+
+        test('merguje gemy gdy są dostępne', async () => {
+            // Dodaj 10x Gem 💎 1M do inventarza
+            for (let i = 0; i < 10; i++) {
+                db.addInventoryItem(testUser, 'Gem 💎 1M', 1, 1000000);
+            }
+
+            // Sprawdź czy mamy 10 przed merge
+            let inv = db.getInventory(testUser);
+            const gem1m = inv.find(i => i.name === 'Gem 💎 1M');
+            expect(gem1m.qty).toBeGreaterThanOrEqual(10);
+
+            const res = await request(app)
+                .post('/api/gems/merge')
+                .set('Cookie', sessionCookie)
+                .send({ recipe: 0 }); // 10x Gem 💎 1M → 1x Gem 💎 10M
+            expect(res.body.ok).toBe(true);
+
+            // Sprawdź czy gemy się zmieniły
+            inv = db.getInventory(testUser);
+            const gem10m = inv.find(i => i.name === 'Gem 💎 10M');
+            expect(gem10m).toBeTruthy();
+            expect(gem10m.qty).toBeGreaterThanOrEqual(1);
+        });
+    });
+});
+
 // ── CLEANUP ─────────────────────────────────────────────────────
 
 afterAll(() => {
