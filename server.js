@@ -112,6 +112,16 @@ app.use(express.static(path.join(__dirname, '.')));
 app.use(express.json());
 app.use(cookieParser());
 
+// ── Health check dla Render ────────────────────────────────────
+app.get('/health', (req, res) => {
+    res.json({
+        status: 'ok',
+        uptime: process.uptime(),
+        timestamp: Date.now(),
+        connections: io.engine?.clientsCount || 0
+    });
+});
+
 // ── Route dla /admin ──────────────────────────────────────────
 app.get('/admin', (req, res) => {
     res.sendFile(path.join(__dirname, 'admin.html'));

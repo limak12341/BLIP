@@ -8,6 +8,15 @@ services:
     plan: starter  # ⚠️ Redis wymaga płatnego planu (Starter od $7/mies.)
     buildCommand: npm install
     startCommand: npm start
+    healthCheckPath: /health
+    # ── Autoscaling (wymaga planu Pro na Renderze) ────────────
+    # Na planie Starter/Indie to ustawienie jest ignorowane.
+    # Aby autoscaling działał, zmień plan na Pro w dashboardzie.
+    scaling:
+      minInstances: 1
+      maxInstances: 2
+      targetCpuUtilization: 50
+      targetMemoryUtilization: 70
     envVars:
       - key: NODE_ENV
         value: production
