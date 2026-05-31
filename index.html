@@ -132,10 +132,10 @@
       </nav>
 
       <div class="sidebar-bottom">
-        <div class="sidebar-user" id="sidebar-user" style="display:none" onclick="toggleProfileStats()">
+        <div class="sidebar-user" id="sidebar-user" style="display:none">
           <img id="sidebar-avatar" class="sidebar-avatar" src="" alt="">
-          <span class="sidebar-username" id="sidebar-username">—</span>
-          <span class="sidebar-chevron">▸</span>
+          <span class="sidebar-username" id="sidebar-username" onclick="toggleProfileStats()">—</span>
+          <button class="profile-toggle-btn" onclick="toggleProfileStats()" title="Pokaż/ukryj statystyki">▸</button>
         </div>
 
         <!-- Profile stats dropdown (inside sidebar) -->

@@ -478,7 +478,7 @@ app.post('/verify-start', async (req, res) => {
     // Generuj losowy 6-znakowy kod (zapisywany w Redis z TTL 5 min)
     const code = Math.random().toString(36).substring(2, 8).toUpperCase();
     await redis.setVerifyCode(username, code);
-    console.log(`[Verify] Code ${code} generated for ${username} (Redis TTL 5min)`);
+    // console.log(`[Verify] Code ${code} generated for ${username} (Redis TTL 5min)`); // security: removed sensitive log
     res.json({ code });
 });
 

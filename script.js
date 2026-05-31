@@ -1942,7 +1942,7 @@ socket.on('recentGamesUpdated', (games) => {
 
 // ── SYSTEM MESSAGE TOAST ────────────────────────────────────────
 socket.on('systemMessage', (msg) => {
-n    // ObsluÄ… takÅ¼e string jak i obiekt { message: "..." }
+    // ObsluÄ… takÅ¼e string jak i obiekt { message: "..." }
     const text = (typeof msg === "string" || typeof msg === "number") ? String(msg) : (msg?.message || "");
     if (!text) return;
     // Usuń stary toast jeśli istnieje
