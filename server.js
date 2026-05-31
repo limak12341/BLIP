@@ -458,27 +458,6 @@ app.post('/api/admin/chat-filter/save', requireAdmin, (req, res) => {
 // ── Provably Fair Routes ──────────────────────────────────────
 pf.setupRoutes(app);
 
-// Provably Fair seed history API (dla admina)
-app.get('/api/provably-fair/seed-history', (req, res) => {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
-    let all = [];
-    if (db && db.getAllSeedRecords) {
-        all = db.getAllSeedRecords();
-    }
-    const total = all.length;
-    const pages = Math.ceil(total / limit) || 1;
-    const slice = all.slice((page - 1) * limit, page * limit).reverse();
-    const safe = slice.map(s => ({
-        hash: s.hash || (require('crypto').createHash('sha256').update(String(s.seed || '')).digest().toString('hex')),
-        revealed: s.revealed || false,
-        createdAt: s.createdAt,
-        revealedAt: s.revealedAt || null,
-        gamesPlayed: s.gamesPlayed || 0
-    }));
-    res.json({ seeds: safe, page, pages, total });
-});
-
 // ── Weryfikacja Bio (kody logowania) ──────────────────────────
 const verifyCodes = new Map(); // username -> { code, createdAt }
 const sessions = new Map(); // token -> username
@@ -616,15 +595,223 @@ app.post('/api/bot/update-deposit', requireBot, (req, res) => {
     res.json({ success: true, status });
 });
 
+// ── Player REST API (profile, leaderboard, inventory, deposit) ──
+
+// Auth middleware (from session cookie)
+function requireAuth(req, res, next) {
+    const token = req.cookies?.bf_session;
+    if (!token || !sessions.has(token)) {
+        return res.status(401).json({ error: 'Unauthorized. Please log in.' });
+    }
+    req.username = sessions.get(token);
+    next();
+}
+
+// GET /api/profile/stats — statystyki profilu
+app.get('/api/profile/stats', requireAuth, (req, res) => {
+    const stats = db.getPlayerStats(req.username);
+    res.json(stats);
+});
+
+// GET /api/profile/public/:userId — publiczny profil
+app.get('/api/profile/public/:userId', (req, res) => {
+    const username = req.params.userId;
+    if (!db.usernameExists(username)) {
+        return res.status(404).json({ error: 'Player not found' });
+    }
+    const profile = db.getPublicProfile(username);
+    res.json(profile);
+});
+
+// POST /api/profile/:userId/tip — wysłanie tipa
+app.post('/api/profile/:userId/tip', requireAuth, (req, res) => {
+    const target = req.params.userId;
+    const amount = parseInt(req.body?.amount);
+    if (!amount || amount < 1) {
+        return res.json({ ok: false, message: 'Invalid amount.' });
+    }
+    const result = db.tipPlayer(req.username, target, amount);
+    if (result.ok) {
+        io.emit('systemMessage', `${req.username} tipped ${amount} coins to ${target}! 💰`);
+        io.emit('playerListUpdate');
+    }
+    res.json(result);
+});
+
+// GET /api/leaderboard — ranking graczy
+app.get('/api/leaderboard', (req, res) => {
+    const leaderboard = db.getLeaderboard();
+    res.json({ leaderboard });
+});
+
+// POST /api/promo/redeem — realizacja kodu promocyjnego
+app.post('/api/promo/redeem', requireAuth, (req, res) => {
+    const { code } = req.body || {};
+    if (!code) {
+        return res.json({ success: false, message: 'Podaj kod promocyjny!' });
+    }
+    const promos = db.loadPromo();
+    const promo = promos[code];
+    if (!promo) {
+        return res.json({ success: false, message: 'Nieprawidłowy kod promocyjny.' });
+    }
+    if (promo.active === false) {
+        return res.json({ success: false, message: 'Ten kod został wyłączony.' });
+    }
+    if (promo.usedBy && promo.usedBy.includes(req.username)) {
+        return res.json({ success: false, message: 'Już wykorzystałeś ten kod.' });
+    }
+    const result = db.applyPromoBonus(req.username, code);
+    if (result && result.success) {
+        io.emit('playerListUpdate');
+        res.json({ success: true, message: `✅ Kod zrealizowany! Otrzymałeś ${result.value} ${result.type === 'coins' ? 'monet' : 'gemów'}!` });
+    } else if (result && result.error) {
+        res.json({ success: false, message: result.error });
+    } else {
+        res.json({ success: false, message: 'Kod wygasł lub osiągnął limit użyć.' });
+    }
+});
+
+// GET /api/inventory — inventarz użytkownika
+app.get('/api/inventory', requireAuth, (req, res) => {
+    const items = db.getInventory(req.username);
+    res.json({ items });
+});
+
+// GET /api/inventory/with-rap — inventarz z RAP
+app.get('/api/inventory/with-rap', requireAuth, (req, res) => {
+    const items = db.getInventory(req.username);
+    // Dodaj RAP z bazy petów jeśli brak
+    const petsDb = db.getPetsDatabase();
+    const itemsWithRap = items.map(item => {
+        const pet = petsDb.find(p => p.name === item.name);
+        return {
+            ...item,
+            rap: pet ? pet.rap : (item.rap || 0)
+        };
+    });
+    res.json({ items: itemsWithRap });
+});
+
+// GET /api/pets/search — wyszukiwarka petów/itemów
+app.get('/api/pets/search', (req, res) => {
+    const q = req.query.q || '';
+    const category = req.query.category || 'all';
+    const limit = parseInt(req.query.limit) || 30;
+    let results = db.searchPets(q, category);
+    if (limit > 0) results = results.slice(0, limit);
+    res.json({ results });
+});
+
+// POST /api/deposit/request — zgłoszenie depozytu
+app.post('/api/deposit/request', requireAuth, (req, res) => {
+    const { items, note } = req.body || {};
+    if (!items || !items.length) {
+        return res.status(400).json({ error: 'No items provided.' });
+    }
+    const requests = db.loadRequests();
+    const request = {
+        _id: crypto.randomBytes(8).toString('hex'),
+        username: req.username,
+        type: 'deposit',
+        items: items,
+        note: note || '',
+        status: 'pending',
+        createdAt: Date.now()
+    };
+    requests.push(request);
+    db.saveRequests(requests);
+    
+    // Log
+    let logs = [];
+    try { logs = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'logs.json'), 'utf8')); } catch (e) { logs = []; }
+    logs.push({ type: 'deposit-request', description: `${req.username} deposited ${items.length} items`, timestamp: Date.now() });
+    fs.writeFileSync(path.join(DATA_DIR, 'logs.json'), JSON.stringify(logs));
+    
+    res.json({ success: true, requestId: request._id });
+});
+
+// POST /api/withdraw/request — zgłoszenie wypłaty
+app.post('/api/withdraw/request', requireAuth, (req, res) => {
+    const { items, note } = req.body || {};
+    if (!items || !items.length) {
+        return res.status(400).json({ error: 'No items provided.' });
+    }
+    
+    // Sprawdź czy gracz ma itemy w inventarzu
+    const inventory = db.getInventory(req.username);
+    for (const item of items) {
+        const inv = inventory.find(i => i.name === item.name);
+        if (!inv || inv.qty < item.qty) {
+            return res.status(400).json({ error: `Not enough ${item.name} in inventory.` });
+        }
+    }
+    
+    // Usuń itemy z inventarza
+    for (const item of items) {
+        db.removeInventoryItem(req.username, item.name, item.qty);
+    }
+    
+    const requests = db.loadRequests();
+    const request = {
+        _id: crypto.randomBytes(8).toString('hex'),
+        username: req.username,
+        type: 'withdraw',
+        items: items,
+        note: note || '',
+        status: 'pending',
+        createdAt: Date.now()
+    };
+    requests.push(request);
+    db.saveRequests(requests);
+    
+    res.json({ success: true, requestId: request._id });
+});
+
+// GET /api/requests — zgłoszenia użytkownika
+app.get('/api/requests', requireAuth, (req, res) => {
+    const allRequests = db.loadRequests();
+    const userRequests = allRequests.filter(r => r.username === req.username).reverse();
+    res.json({ requests: userRequests });
+});
+
+// POST /api/gems/merge — łączenie gemów
+app.post('/api/gems/merge', requireAuth, (req, res) => {
+    const recipe = parseInt(req.body?.recipe);
+    if (isNaN(recipe)) {
+        return res.json({ ok: false, message: 'Invalid recipe index.' });
+    }
+    const result = db.mergeGems(req.username, recipe);
+    if (result.ok) {
+        io.emit('playerListUpdate');
+    }
+    res.json({ ok: result.ok, message: result.message });
+});
+
 // ── Socket.IO ──────────────────────────────────────────────────
 const chatHistory = db.loadChat();
 const MAX_CHAT_HISTORY = 200;
+
+// Helper: konwertuj stary format czatu na nowy (userId, username, avatarUrl, role, message, timestamp)
+function normalizeChatMsg(oldMsg) {
+    if (oldMsg.userId) return oldMsg; // już w nowym formacie
+    const username = oldMsg.user || oldMsg.username || 'System';
+    const player = (username !== 'System') ? db.getPlayer(username) : null;
+    return {
+        userId: oldMsg.userId || (username === 'System' ? 'system' : username),
+        username: username,
+        avatarUrl: player ? player.avatarUrl || '' : '',
+        role: player && player.roles && player.roles.length > 0 ? player.roles[0] : '',
+        message: oldMsg.msg || oldMsg.message || '',
+        timestamp: oldMsg.time || oldMsg.timestamp || Date.now()
+    };
+}
 
 io.on('connection', (socket) => {
     console.log('New connection:', socket.id);
     let loggedInUser = null;
 
-    socket.emit('chatHistory', chatHistory.slice(-100));
+    socket.emit('chatHistory', chatHistory.slice(-100).map(normalizeChatMsg));
 
     socket.on('login', (data) => {
         // Rate limiting
@@ -730,15 +917,18 @@ io.on('connection', (socket) => {
         if (loggedInUser) resetInactivityTimer(socket);
     });
 
-    socket.on('chatMessage', (data) => {
-        if (!loggedInUser) return;
-        // Rate limiting - max 3 messages per 2 seconds
-        if (!checkRateLimit(`chat:${loggedInUser}`, CHAT_RATE_MAX, CHAT_RATE_WINDOW)) return;
-                const rawMsg = (data.msg || '').substring(0, 500);
+    // ── Helper: przetwórz i wyemituj wiadomość czatu ──
+    function processChatMessage(user, rawMsg) {
+        if (!user) return;
+        if (!checkRateLimit(`chat:${user}`, CHAT_RATE_MAX, CHAT_RATE_WINDOW)) return;
+        
+        const msg = (rawMsg || '').substring(0, 500);
+        if (!msg.trim()) return;
+        
         // Chat filter - bad words
         const filterData = db.loadFilter();
         if (filterData.enabled !== false && filterData.words && filterData.words.length > 0) {
-            const lowerMsg = rawMsg.toLowerCase();
+            const lowerMsg = msg.toLowerCase();
             let found = false;
             for (let fi = 0; fi < filterData.words.length; fi++) {
                 const fword = filterData.words[fi];
@@ -746,10 +936,13 @@ io.on('connection', (socket) => {
             }
             if (found) {
                 if (filterData.punishment === 'block' || filterData.punishment === 'warn') {
-                    socket.emit('chatMessage', { user: 'System', msg: '⚠️ Your message contains prohibited words!', time: Date.now() });
+                    socket.emit('newChatMessage', {
+                        userId: 'system', username: 'System', avatarUrl: '', role: '',
+                        message: '⚠️ Your message contains prohibited words!', timestamp: Date.now()
+                    });
                     return;
                 } else if (filterData.punishment === 'censor') {
-                    let censored = rawMsg;
+                    let censored = msg;
                     for (let ci = 0; ci < filterData.words.length; ci++) {
                         const cword = filterData.words[ci];
                         if (cword) {
@@ -757,22 +950,45 @@ io.on('connection', (socket) => {
                             censored = censored.replace(re, '***');
                         }
                     }
-                    const msgCensored = db.escapeHtml(censored);
-                    const chatMsgCensored = { user: loggedInUser, msg: msgCensored, time: Date.now() };
-                    chatHistory.push(chatMsgCensored);
+                    const playerInfo = db.getPlayer(user);
+                    const newMsg = {
+                        userId: user, username: user,
+                        avatarUrl: playerInfo.avatarUrl || '',
+                        role: (playerInfo.roles && playerInfo.roles.length > 0) ? playerInfo.roles[0] : '',
+                        message: db.escapeHtml(censored),
+                        timestamp: Date.now()
+                    };
+                    chatHistory.push(newMsg);
                     if (chatHistory.length > MAX_CHAT_HISTORY) chatHistory.splice(0, chatHistory.length - MAX_CHAT_HISTORY);
                     db.saveChat(chatHistory);
-                    io.emit('chatMessage', chatMsgCensored);
+                    io.emit('newChatMessage', newMsg);
                     return;
                 }
             }
         }
-        const msg = db.escapeHtml(rawMsg);
-        const chatMsg = { user: loggedInUser, msg, time: Date.now() };
-        chatHistory.push(chatMsg);
+        
+        const playerInfo = db.getPlayer(user);
+        const newMsg = {
+            userId: user, username: user,
+            avatarUrl: playerInfo.avatarUrl || '',
+            role: (playerInfo.roles && playerInfo.roles.length > 0) ? playerInfo.roles[0] : '',
+            message: db.escapeHtml(msg),
+            timestamp: Date.now()
+        };
+        chatHistory.push(newMsg);
         if (chatHistory.length > MAX_CHAT_HISTORY) chatHistory.splice(0, chatHistory.length - MAX_CHAT_HISTORY);
         db.saveChat(chatHistory);
-        io.emit('chatMessage', chatMsg);
+        io.emit('newChatMessage', newMsg);
+    }
+
+    // ── Nowy format czatu (sendChatMessage) ──
+    socket.on('sendChatMessage', (data) => {
+        processChatMessage(loggedInUser, data.message || data.msg || '');
+    });
+
+    // ── Stary format czatu (chatMessage) — wsparcie wsteczne ──
+    socket.on('chatMessage', (data) => {
+        processChatMessage(loggedInUser, data.msg || data.message || '');
     });
 
     socket.on('systemMessage', (data) => {
@@ -880,6 +1096,47 @@ io.on('connection', (socket) => {
                     amount
                 });
                 io.emit('recentGamesUpdated', games.getRecentGames());
+
+                // ── Record PVP history ──
+                const joinerPlayer = db.getPlayer(loggedInUser);
+                const creatorPlayer = db.getPlayer(game.creator);
+                games.addPvpGame({
+                    creator: {
+                        username: game.creator,
+                        side: game.choice || 'heads',
+                        won: !win,
+                        avatarUrl: creatorPlayer.avatarUrl || ''
+                    },
+                    joiner: {
+                        username: loggedInUser,
+                        side: choice,
+                        won: win,
+                        avatarUrl: joinerPlayer.avatarUrl || ''
+                    },
+                    totalValue: amount * 2
+                });
+
+                // ── Record in player game history ──
+                const pvpGameRecord = {
+                    serverSeedHash: pf.getServerSeedHash(),
+                    clientSeed,
+                    nonce,
+                    result: fairResult,
+                    outcome: win ? 'win' : 'loss',
+                    amount,
+                    type: 'pvp',
+                    opponent: win ? game.creator : loggedInUser,
+                    timestamp: Date.now()
+                };
+                if (!creatorPlayer.gameHistory) creatorPlayer.gameHistory = [];
+                creatorPlayer.gameHistory.push({ ...pvpGameRecord, outcome: !win ? 'win' : 'loss', opponent: loggedInUser });
+                if (creatorPlayer.gameHistory.length > 50) creatorPlayer.gameHistory.shift();
+                db.savePlayer(game.creator, creatorPlayer);
+                
+                if (!joinerPlayer.gameHistory) joinerPlayer.gameHistory = [];
+                joinerPlayer.gameHistory.push(pvpGameRecord);
+                if (joinerPlayer.gameHistory.length > 50) joinerPlayer.gameHistory.shift();
+                db.savePlayer(loggedInUser, joinerPlayer);
 
                 pf.rotateServerSeed();
                 delete games.activeGames[existingId];
@@ -1258,6 +1515,24 @@ io.on('connection', (socket) => {
     // ── Live Feed: send recent games on request ──
     socket.on('getRecentGames', () => {
         socket.emit('recentGamesUpdated', games.getRecentGames());
+    });
+
+    // ── PVP Game History ──
+    socket.on('getHistory', () => {
+        if (!loggedInUser) return;
+        const history = games.getPvpHistory(loggedInUser);
+        socket.emit('historyData', history);
+    });
+
+    // ── Chat History (refresh) ──
+    socket.on('getChatHistory', () => {
+        socket.emit('chatHistory', chatHistory.slice(-100).map(normalizeChatMsg));
+    });
+
+    // ── Online count ──
+    socket.on('countOnline', () => {
+        const count = io.engine?.clientsCount || 0;
+        socket.emit('onlineCount', count);
     });
 
     // Disconnect

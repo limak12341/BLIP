@@ -157,7 +157,7 @@ describe('Socket.io - logowanie i czat', () => {
         }
     });
 
-    test('wysyła i odbiera wiadomość czatu', async () => {
+    test('wysyła i odbiera wiadomość czatu (nowy format)', async () => {
         const { socket } = await createSocket();
         try {
             // Login first
@@ -169,11 +169,15 @@ describe('Socket.io - logowanie i czat', () => {
 
             const testMsg = 'Hello! ' + Date.now();
             const data = await new Promise((resolve, reject) => {
-                const t = setTimeout(() => reject(new Error('Timeout waiting for chatMessage')), 4000);
-                socket.once('chatMessage', (d) => { clearTimeout(t); resolve(d); });
-                socket.emit('chatMessage', { msg: testMsg });
+                const t = setTimeout(() => reject(new Error('Timeout waiting for newChatMessage')), 4000);
+                socket.once('newChatMessage', (d) => { clearTimeout(t); resolve(d); });
+                socket.emit('sendChatMessage', { message: testMsg });
             });
-            expect(data.msg).toBe(testMsg);
+            expect(data.message).toBe(testMsg);
+            expect(data).toHaveProperty('userId');
+            expect(data).toHaveProperty('username');
+            expect(data).toHaveProperty('avatarUrl');
+            expect(data).toHaveProperty('timestamp');
         } finally {
             closeSocket(socket);
         }
@@ -794,11 +798,11 @@ describe('Socket.io - rate limiting (chat)', () => {
             const msgPromises = [];
             for (let i = 0; i < 4; i++) {
                 msgPromises.push(new Promise((resolve) => {
-                    socket.once('chatMessage', () => {
+                    socket.once('newChatMessage', () => {
                         receivedCount++;
                         resolve();
                     });
-                    socket.emit('chatMessage', { msg: 'Spam message ' + i });
+                    socket.emit('sendChatMessage', { message: 'Spam message ' + i });
                 }));
             }
 
@@ -833,11 +837,11 @@ describe('Socket.io - chat filter', () => {
 
             const data = await new Promise((resolve, reject) => {
                 const t = setTimeout(() => reject(new Error('Timeout chat filter')), 4000);
-                socket.once('chatMessage', (d) => { clearTimeout(t); resolve(d); });
-                socket.emit('chatMessage', { msg: 'This contains badword in it' });
+                socket.once('newChatMessage', (d) => { clearTimeout(t); resolve(d); });
+                socket.emit('sendChatMessage', { message: 'This contains badword in it' });
             });
-            expect(data.user).toBe('System');
-            expect(data.msg).toContain('prohibited');
+            expect(data.username).toBe('System');
+            expect(data.message).toContain('prohibited');
 
             // Przywróć domyślny filtr
             db.saveFilter({ words: [], enabled: true, punishment: 'block' });
@@ -861,11 +865,11 @@ describe('Socket.io - chat filter', () => {
 
             const data = await new Promise((resolve, reject) => {
                 const t = setTimeout(() => reject(new Error('Timeout censored')), 4000);
-                socket.once('chatMessage', (d) => { clearTimeout(t); resolve(d); });
-                socket.emit('chatMessage', { msg: 'That is a foul word' });
+                socket.once('newChatMessage', (d) => { clearTimeout(t); resolve(d); });
+                socket.emit('sendChatMessage', { message: 'That is a foul word' });
             });
-            expect(data.msg).not.toContain('foul');
-            expect(data.msg).toContain('***');
+            expect(data.message).not.toContain('foul');
+            expect(data.message).toContain('***');
 
             db.saveFilter({ words: [], enabled: true, punishment: 'block' });
         } finally {
