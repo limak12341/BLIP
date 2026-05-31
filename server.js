@@ -8,21 +8,17 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const cookieParser = require('cookie-parser');
+const redis = require('./modules/redis');
 
 // ── Rate limiting ────────────────────────────────────────────
-const loginAttempts = new Map(); // ip -> { count, resetAt }
 const MAX_LOGIN_ATTEMPTS = process.env.NODE_ENV === 'test' ? 100 : 25;
 const LOGIN_WINDOW_MS = 10000;
 const MAX_LOGIN_PER_USER = process.env.NODE_ENV === 'test' ? 100 : 15;
 const LOGIN_USER_WINDOW_MS = 10000;
-const loginPerUser = new Map(); // username -> { count, resetAt }
-
-// ── Admin login rate limiting ───────────────────────────────────
-const adminLoginAttempts = new Map(); // ip -> { count, resetAt }
 const ADMIN_LOGIN_MAX = 5;
-const ADMIN_LOGIN_WINDOW_MS = 60000; // 1 minuta
+const ADMIN_LOGIN_WINDOW_MS = 60000;
 
-// ── General socket rate limiter ───────────────────────────────
+// ── General socket rate limiter (in-memory, szybki) ────────────
 const socketRateLimits = new Map(); // key -> { count, resetAt }
 function checkRateLimit(key, maxAttempts, windowMs) {
     const now = Date.now();
@@ -38,15 +34,6 @@ function cleanRateLimits() {
     const now = Date.now();
     for (const [key, entry] of socketRateLimits) {
         if (now > entry.resetAt) socketRateLimits.delete(key);
-    }
-    for (const [key, entry] of loginAttempts) {
-        if (now > entry.resetAt) loginAttempts.delete(key);
-    }
-    for (const [key, entry] of loginPerUser) {
-        if (now > entry.resetAt) loginPerUser.delete(key);
-    }
-    for (const [key, entry] of adminLoginAttempts) {
-        if (now > entry.resetAt) adminLoginAttempts.delete(key);
     }
 }
 let cleanIntervalId;
@@ -110,6 +97,10 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server);
 
+// ── Inicjalizacja Redis (fallback do pamięci jeśli REDIS_URL nie ustawiony) ──
+redis.init();
+redis.startCleanup();
+
 const PORT = process.env.PORT || 10000;
 const DATA_DIR = path.join(__dirname, 'data');
 
@@ -129,19 +120,12 @@ app.get('/admin', (req, res) => {
 // ── Admin REST API ────────────────────────────────────────────
 const adminConfig = db.loadAdmin();
 
-app.post('/admin/login', (req, res) => {
-    // Rate limiting
+app.post('/admin/login', async (req, res) => {
+    // Rate limiting (Redis lub in-memory)
     const ip = req.ip || req.connection?.remoteAddress || 'unknown';
-    const now = Date.now();
-    let attempt = adminLoginAttempts.get(ip);
-    if (!attempt || now > attempt.resetAt) {
-        attempt = { count: 0, resetAt: now + ADMIN_LOGIN_WINDOW_MS };
-        adminLoginAttempts.set(ip, attempt);
-    }
-    attempt.count++;
-    if (attempt.count > ADMIN_LOGIN_MAX) {
-        const retryAfter = Math.ceil((attempt.resetAt - now) / 1000);
-        return res.status(429).json({ success: false, message: `Too many attempts. Try again in ${retryAfter}s.` });
+    const allowed = await redis.checkRateLimit('admin_login:' + ip, ADMIN_LOGIN_MAX, ADMIN_LOGIN_WINDOW_MS);
+    if (!allowed) {
+        return res.status(429).json({ success: false, message: `Too many attempts. Try again later.` });
     }
 
     const { token } = req.body || {};
@@ -151,7 +135,7 @@ app.post('/admin/login', (req, res) => {
     }
     if (token === adminToken) {
         const sessionToken = crypto.randomBytes(16).toString('hex');
-        sessions.set(sessionToken, '__admin__');
+        await redis.setSession('admin:' + sessionToken, '__admin__', 24 * 60 * 60 * 1000);
         res.cookie('bf_admin', sessionToken, {
             maxAge: 24 * 60 * 60 * 1000,
             httpOnly: true,
@@ -163,19 +147,19 @@ app.post('/admin/login', (req, res) => {
     return res.status(401).json({ success: false, message: 'Nieprawidłowy token.' });
 });
 
-app.post('/admin/logout', (req, res) => {
+app.post('/admin/logout', async (req, res) => {
     const token = req.cookies?.bf_admin;
-    if (token) sessions.delete(token);
+    if (token) await redis.delSession('admin:' + token);
     res.clearCookie('bf_admin');
     return res.json({ success: true });
 });
 
 // ── Admin auth middleware ───────────────────────────────────────
-function requireAdmin(req, res, next) {
+async function requireAdmin(req, res, next) {
     const sessionToken = req.cookies?.bf_admin;
-    if (!sessionToken || !sessions.has(sessionToken) || sessions.get(sessionToken) !== '__admin__') {
-        return res.status(401).json({ success: false, message: 'Unauthorized' });
-    }
+    if (!sessionToken) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    const sessionUser = await redis.getSession('admin:' + sessionToken);
+    if (sessionUser !== '__admin__') return res.status(401).json({ success: false, message: 'Unauthorized' });
     next();
 }
 
@@ -467,40 +451,32 @@ app.post('/api/admin/chat-filter/save', requireAdmin, (req, res) => {
 // ── Provably Fair Routes ──────────────────────────────────────
 pf.setupRoutes(app);
 
-// ── Weryfikacja Bio (kody logowania) ──────────────────────────
-const verifyCodes = new Map(); // username -> { code, createdAt }
-const sessions = new Map(); // token -> username
+// ── Weryfikacja Bio (kody logowania) — Redis lub pamięć ──────
+// verifyCodes — Redis TTL (domyślnie) lub in-memory (fallback)
+// sessions — Redis TTL 7 dni lub in-memory (fallback)
 
 // POST /verify-start — generuje kod weryfikacyjny
-app.post('/verify-start', (req, res) => {
+app.post('/verify-start', async (req, res) => {
     const username = (req.body.username || '').trim();
     if (!username || username.length < 2 || username.length > 20) {
         return res.json({ message: 'Nieprawidłowy nick (2-20 znaków).' });
     }
-    // Generuj losowy 6-znakowy kod
+    // Generuj losowy 6-znakowy kod (zapisywany w Redis z TTL 5 min)
     const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-    verifyCodes.set(username, { code, createdAt: Date.now() });
-    // Czyść stare kody (> 5 min)
-    for (const [u, v] of verifyCodes) {
-        if (Date.now() - v.createdAt > 300000) verifyCodes.delete(u);
-    }
-    console.log(`[Verify] Code ${code} generated for ${username}`);
+    await redis.setVerifyCode(username, code);
+    console.log(`[Verify] Code ${code} generated for ${username} (Redis TTL 5min)`);
     res.json({ code });
 });
 
 // POST /verify-check — weryfikuje i loguje użytkownika
-app.post('/verify-check', (req, res) => {
+app.post('/verify-check', async (req, res) => {
     const username = (req.body.username || '').trim();
     if (!username) {
         return res.json({ success: false, message: 'Brak nicku.' });
     }
-    const record = verifyCodes.get(username);
-    if (!record) {
-        return res.json({ success: false, message: 'Najpierw wygeneruj kod (krok 1).' });
-    }
-    if (Date.now() - record.createdAt > 300000) {
-        verifyCodes.delete(username);
-        return res.json({ success: false, message: 'Kod wygasł. Wygeneruj nowy.' });
+    const storedCode = await redis.getVerifyCode(username);
+    if (!storedCode) {
+        return res.json({ success: false, message: 'Najpierw wygeneruj kod (krok 1) lub kod wygasł.' });
     }
     
     // Stwórz sesję
@@ -510,13 +486,13 @@ app.post('/verify-check', (req, res) => {
     }
     
     const token = crypto.randomBytes(16).toString('hex');
-    sessions.set(token, username);
+    await redis.setSession(token, username, 7 * 24 * 60 * 60 * 1000); // 7 dni
     
     // Zapisz gracza jeśli nie istnieje
-    const player = db.getPlayer(username);
+    db.getPlayer(username);
     
     // Usuń kod
-    verifyCodes.delete(username);
+    await redis.delVerifyCode(username);
     
     console.log(`[Verify] ${username} logged in via bio verification`);
     
@@ -531,12 +507,11 @@ app.post('/verify-check', (req, res) => {
 });
 
 // Weryfikacja sesji
-app.get('/api/session', (req, res) => {
+app.get('/api/session', async (req, res) => {
     const token = req.cookies?.bf_session;
-    if (!token || !sessions.has(token)) {
-        return res.json({ authenticated: false });
-    }
-    const username = sessions.get(token);
+    if (!token) return res.json({ authenticated: false });
+    const username = await redis.getSession(token);
+    if (!username) return res.json({ authenticated: false });
     const player = db.getPlayer(username);
     res.json({
         authenticated: true,
@@ -606,14 +581,20 @@ app.post('/api/bot/update-deposit', requireBot, (req, res) => {
 
 // ── Player REST API (profile, leaderboard, inventory, deposit) ──
 
-// Auth middleware (from session cookie)
-function requireAuth(req, res, next) {
+// Auth middleware (from session cookie) — Redis lub pamięć
+async function requireAuth(req, res, next) {
     const token = req.cookies?.bf_session;
-    if (!token || !sessions.has(token)) {
-        return res.status(401).json({ error: 'Unauthorized. Please log in.' });
-    }
-    req.username = sessions.get(token);
+    if (!token) return res.status(401).json({ error: 'Unauthorized. Please log in.' });
+    const username = await redis.getSession(token);
+    if (!username) return res.status(401).json({ error: 'Unauthorized. Session expired.' });
+    req.username = username;
     next();
+}
+
+// Helper async dla adminów w requireAuth-like middleware
+async function getUsernameFromToken(token) {
+    if (!token) return null;
+    return await redis.getSession(token);
 }
 
 // GET /api/profile/stats — statystyki profilu
@@ -798,8 +779,24 @@ app.post('/api/gems/merge', requireAuth, (req, res) => {
 });
 
 // ── Socket.IO ──────────────────────────────────────────────────
-const chatHistory = db.loadChat();
+// Chat history: Redis list (jeśli dostępny) + in-memory (fallback)
+// Przy starcie ładujemy z pliku jako backup
+let chatHistory = db.loadChat();
 const MAX_CHAT_HISTORY = 200;
+
+// ── Sync in-memory chat → Redis (przy starcie) ──
+(async () => {
+    try {
+        const redisCount = await redis.getChatHistoryCount();
+        if (redisCount === 0 && chatHistory.length > 0) {
+            // Seed Redis z plikowego backupu
+            for (const msg of chatHistory.slice(-100).reverse()) {
+                await redis.addChatMessage(msg);
+            }
+            console.log('[Chat] Synced', chatHistory.length, 'messages to Redis');
+        }
+    } catch (e) { /* Redis not available, using in-memory */ }
+})();
 
 // Helper: konwertuj stary format czatu na nowy (userId, username, avatarUrl, role, message, timestamp)
 function normalizeChatMsg(oldMsg) {
@@ -822,36 +819,19 @@ io.on('connection', (socket) => {
 
     socket.emit('chatHistory', chatHistory.slice(-100).map(normalizeChatMsg));
 
-    socket.on('login', (data) => {
-        // Rate limiting (per-IP)
+    socket.on('login', async (data) => {
+        // Rate limiting (per-IP + per-username) — Redis TTL lub in-memory fallback
         const ip = socket.handshake?.address || 'unknown';
-        const now = Date.now();
-        let ipAttempt = loginAttempts.get(ip);
-        if (!ipAttempt || now > ipAttempt.resetAt) {
-            ipAttempt = { count: 0, resetAt: now + LOGIN_WINDOW_MS };
-            loginAttempts.set(ip, ipAttempt);
-        }
-        ipAttempt.count++;
-        if (ipAttempt.count > MAX_LOGIN_ATTEMPTS) {
-            const retryAfter = Math.ceil((ipAttempt.resetAt - now) / 1000);
-            socket.emit('loginError', { message: `Too many attempts. Try again in ${retryAfter}s.` });
-            return;
-        }
-        
-        // Rate limiting (per-username) — zapobiega blokowaniu IP przez wielu userów
         const username = (data.username || '').trim();
-        if (username) {
-            let userAttempt = loginPerUser.get(username.toLowerCase());
-            if (!userAttempt || now > userAttempt.resetAt) {
-                userAttempt = { count: 0, resetAt: now + LOGIN_USER_WINDOW_MS };
-                loginPerUser.set(username.toLowerCase(), userAttempt);
-            }
-            userAttempt.count++;
-            if (userAttempt.count > MAX_LOGIN_PER_USER) {
-                const retryAfter = Math.ceil((userAttempt.resetAt - now) / 1000);
-                socket.emit('loginError', { message: `Too many attempts for this username. Try again in ${retryAfter}s.` });
-                return;
-            }
+        
+        const rateResult = await redis.checkLoginRateLimit(
+            ip, username,
+            MAX_LOGIN_ATTEMPTS, MAX_LOGIN_PER_USER,
+            LOGIN_WINDOW_MS
+        );
+        if (!rateResult.ok) {
+            socket.emit('loginError', { message: `Too many attempts. Try again later.` });
+            return;
         }
 
         // Validate username
@@ -984,6 +964,7 @@ io.on('connection', (socket) => {
                     chatHistory.push(newMsg);
                     if (chatHistory.length > MAX_CHAT_HISTORY) chatHistory.splice(0, chatHistory.length - MAX_CHAT_HISTORY);
                     db.saveChat(chatHistory);
+                    redis.addChatMessage(newMsg).catch(() => {}); // Redis cache (best-effort)
                     io.emit('newChatMessage', newMsg);
                     return;
                 }
@@ -1001,6 +982,7 @@ io.on('connection', (socket) => {
         chatHistory.push(newMsg);
         if (chatHistory.length > MAX_CHAT_HISTORY) chatHistory.splice(0, chatHistory.length - MAX_CHAT_HISTORY);
         db.saveChat(chatHistory);
+        redis.addChatMessage(newMsg).catch(() => {}); // Redis cache (best-effort)
         io.emit('newChatMessage', newMsg);
     }
 
@@ -1594,8 +1576,15 @@ io.on('connection', (socket) => {
         }
     });
 
-    // ── Chat History (refresh) ──
-    socket.on('getChatHistory', () => {
+    // ── Chat History (refresh) — Redis lub in-memory ──
+    socket.on('getChatHistory', async () => {
+        try {
+            const redisChat = await redis.getChatHistory(100);
+            if (redisChat && redisChat.length > 0) {
+                socket.emit('chatHistory', redisChat.reverse().map(normalizeChatMsg));
+                return;
+            }
+        } catch (e) { /* fall through */ }
         socket.emit('chatHistory', chatHistory.slice(-100).map(normalizeChatMsg));
     });
 
@@ -1606,13 +1595,14 @@ io.on('connection', (socket) => {
     });
 
     // Disconnect
-    socket.on('checkSession', () => {
+    socket.on('checkSession', async () => {
         const token = socket.handshake?.headers?.cookie
             ?.split('; ')
             ?.find(c => c.startsWith('bf_session='))
             ?.split('=')[1];
-        if (token && sessions.has(token)) {
-            const username = sessions.get(token);
+        if (!token) { socket.emit('sessionNone'); return; }
+        const username = await redis.getSession(token);
+        if (username) {
             loggedInUser = username;
             const player = db.getPlayer(username);
             

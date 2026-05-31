@@ -38,6 +38,7 @@
     "dotenv": "^17.4.2",
     "express": "^4.18.2",
     "express-session": "^1.18.0",
+    "ioredis": "^5.11.0",
     "noblox.js": "^9.0.0",
     "socket.io": "^4.8.3"
   },
