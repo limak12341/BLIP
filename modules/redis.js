@@ -90,11 +90,9 @@ function memCleanup() {
             mem.delete(key);
         }
     }
-    // Clean empty lists (older than 30 min)
-    const cutoff = now - 30 * 60 * 1000;
-    for (const [key] of memLists) {
-        // Simple cleanup: delete lists with no activity (not tracked, just clear expired)
-    }
+}
+function memCleanupNoop() {
+    // placeholder — w przyszłości czyszczenie memLists
 }
 
 // ── Generic key-value API ──
@@ -243,22 +241,6 @@ function startCleanup(intervalMs) {
     cleanupInterval = setInterval(memCleanup, intervalMs || RATE_LIMIT_CLEANUP_MS);
 }
 
-function stopCleanup() {
-    if (cleanupInterval) {
-        clearInterval(cleanupInterval);
-        cleanupInterval = null;
-    }
-}
-
-async function quit() {
-    stopCleanup();
-    if (client) {
-        try {
-            await client.quit();
-        } catch (e) { /* ignore */ }
-    }
-}
-
 // ── Export ──
 module.exports = {
     init, isReady,
@@ -269,5 +251,5 @@ module.exports = {
     setSession, getSession, delSession,
     addChatMessage, getChatHistory, getChatHistoryCount,
     setVerifyCode, getVerifyCode, delVerifyCode,
-    startCleanup, stopCleanup, quit
+    startCleanup
 };
