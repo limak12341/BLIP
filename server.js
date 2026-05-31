@@ -14,6 +14,11 @@ const loginAttempts = new Map(); // ip -> { count, resetAt }
 const MAX_LOGIN_ATTEMPTS = process.env.NODE_ENV === 'test' ? 100 : 5;
 const LOGIN_WINDOW_MS = 10000;
 
+// ── Admin login rate limiting ───────────────────────────────────
+const adminLoginAttempts = new Map(); // ip -> { count, resetAt }
+const ADMIN_LOGIN_MAX = 5;
+const ADMIN_LOGIN_WINDOW_MS = 60000; // 1 minuta
+
 // ── General socket rate limiter ───────────────────────────────
 const socketRateLimits = new Map(); // key -> { count, resetAt }
 function checkRateLimit(key, maxAttempts, windowMs) {
@@ -30,6 +35,9 @@ function cleanRateLimits() {
     const now = Date.now();
     for (const [key, entry] of socketRateLimits) {
         if (now > entry.resetAt) socketRateLimits.delete(key);
+    }
+    for (const [key, entry] of adminLoginAttempts) {
+        if (now > entry.resetAt) adminLoginAttempts.delete(key);
     }
 }
 let cleanIntervalId;
@@ -99,6 +107,7 @@ const DATA_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 // ── Express middleware (MUSI być przed pf.setupRoutes) ────────
+app.set('trust proxy', 1); // Dla poprawnego IP za proxy (Render)
 app.use(express.static(path.join(__dirname, '.')));
 app.use(express.json());
 app.use(cookieParser());
@@ -112,15 +121,33 @@ app.get('/admin', (req, res) => {
 const adminConfig = db.loadAdmin();
 
 app.post('/admin/login', (req, res) => {
+    // Rate limiting
+    const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+    const now = Date.now();
+    let attempt = adminLoginAttempts.get(ip);
+    if (!attempt || now > attempt.resetAt) {
+        attempt = { count: 0, resetAt: now + ADMIN_LOGIN_WINDOW_MS };
+        adminLoginAttempts.set(ip, attempt);
+    }
+    attempt.count++;
+    if (attempt.count > ADMIN_LOGIN_MAX) {
+        const retryAfter = Math.ceil((attempt.resetAt - now) / 1000);
+        return res.status(429).json({ success: false, message: `Too many attempts. Try again in ${retryAfter}s.` });
+    }
+
     const { token } = req.body || {};
-    const adminToken = adminConfig.token || process.env.ADMIN_TOKEN || 'test-admin-token-123';
+    const adminToken = adminConfig.token || process.env.ADMIN_TOKEN;
+    if (!adminToken) {
+        return res.status(500).json({ success: false, message: 'ADMIN_TOKEN not configured. Set ADMIN_TOKEN in .env file.' });
+    }
     if (token === adminToken) {
         const sessionToken = crypto.randomBytes(16).toString('hex');
         sessions.set(sessionToken, '__admin__');
         res.cookie('bf_admin', sessionToken, {
             maxAge: 24 * 60 * 60 * 1000,
             httpOnly: true,
-            sameSite: 'lax'
+            sameSite: 'lax',
+            secure: process.env.NODE_ENV === 'production'
         });
         return res.json({ success: true });
     }
@@ -1181,7 +1208,7 @@ io.on('connection', (socket) => {
 
     socket.on('adminLogin', (data) => {
         const admin = db.loadAdmin();
-        if (data.password === admin.password) {
+        if (db.verifyAdminPasswordSync(data.password, admin.password)) {
             const player = db.getPlayer(data.username);
             if (!player.roles) player.roles = [];
             if (!player.roles.includes('admin')) {
@@ -1381,6 +1408,12 @@ if (require.main === module) {
         } else {
             console.log('[SERVER] Bot pominięty (ENABLE_BOT!=true lub nieustawione)');
         }
+
+        // ── Ostrzeżenie o ADMIN_TOKEN ──
+        if (!process.env.ADMIN_TOKEN && !adminConfig.token) {
+            console.warn('⚠️  ADMIN_TOKEN nie skonfigurowany! Panel admina nie będzie dostępny.');
+            console.warn('    Ustaw ADMIN_TOKEN w pliku .env, np.: ADMIN_TOKEN=twoj-sekretny-token');
+        }
     });
 }
 
@@ -1405,6 +1438,12 @@ if (require.main === module) {
     process.on('SIGTERM', shutdown);
     process.on('SIGINT', shutdown);
 }
+
+// ── Global error handler middleware (MUSI być na końcu wszystkich route'ów!) ──
+app.use((err, req, res, next) => {
+    console.error('UNHANDLED ERROR:', err);
+    res.status(500).json({ error: 'Internal server error' });
+});
 
 module.exports = { app, server, db, pf, games };
 

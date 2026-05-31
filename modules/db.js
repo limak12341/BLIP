@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const DATA_FILE = path.join(DATA_DIR, 'players.json');
@@ -151,8 +152,26 @@ function loadAdmin() {
     return loadJson(ADMIN_FILE, { password: 'admin123', roles: {} });
 }
 
+const SALT_ROUNDS = 10;
+
 function saveAdmin(data) {
+    // Hash password if it's not already hashed (bcrypt hash starts with $2)
+    if (data.password && !data.password.startsWith('$2')) {
+        data.password = bcrypt.hashSync(data.password, SALT_ROUNDS);
+    }
     saveJson(ADMIN_FILE, data);
+}
+
+function verifyAdminPasswordSync(password, hash) {
+    try {
+        if (hash && hash.startsWith('$2')) {
+            return bcrypt.compareSync(password, hash);
+        }
+        // Fallback to direct comparison for legacy plaintext passwords (migration)
+        return password === hash;
+    } catch (e) {
+        return password === hash;
+    }
 }
 
 // ── Warnings ──
@@ -289,7 +308,7 @@ module.exports = {
     loadCooldowns, saveCooldowns,
     loadChat, saveChat,
     loadPromo, savePromo, applyPromoBonus, PROMO_CODE_MAXLEN,
-    loadAdmin, saveAdmin,
+    loadAdmin,    saveAdmin, verifyAdminPasswordSync,
     loadWarnings, saveWarnings,
     loadBans, saveBans, isBanned, hasRole,
     saveSeedRecord, revealSeedRecord, getActiveServerSeed,
