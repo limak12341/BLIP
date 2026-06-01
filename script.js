@@ -2477,8 +2477,399 @@ document.addEventListener('click', function(e) {
 })();
 
 
+// ═══════════════════════════════════════════════════════════════
+//  JACKPOT SYSTEM
+// ═══════════════════════════════════════════════════════════════
+
+let jackpotSelectedItems = [];
+let jackpotInventoryRAP = [];
+
+// ── Socket: initial status ──
+socket.on('jackpotStatus', (data) => {
+    renderJackpot(data);
+});
+
+socket.on('jackpotTimerUpdate', (data) => {
+    updateJackpotTimer(data.remaining, data.timerEnd);
+});
+
+socket.on('jackpotJoined', (data) => {
+    console.log('[Jackpot] Joined:', data.tickets, 'tickets');
+    refreshBalance();
+});
+
+socket.on('jackpotError', (data) => {
+    showJackpotError(data.message);
+});
+
+socket.on('jackpotResult', (data) => {
+    showJackpotResult(data);
+});
+
+socket.on('jackpotHistory', (data) => {
+    renderJackpotHistory(data);
+});
+
+// ── Render main jackpot UI ──
+function renderJackpot(jp) {
+    const container = document.getElementById('tab-jackpot');
+    if (!container) return;
+
+    if (!jp || !jp.active) {
+        // No active jackpot
+        document.getElementById('jp-status-badge').textContent = '⏳ Oczekiwanie...';
+        document.getElementById('jp-pot-value').textContent = '🪙 0';
+        document.getElementById('jp-tickets-value').textContent = '0';
+        document.getElementById('jp-participants-count').textContent = '0';
+        document.getElementById('jp-participants-list').innerHTML = '<div class="jp-participants-empty">Brak uczestników</div>';
+        document.getElementById('jp-timer-text').textContent = '60s';
+        document.getElementById('jp-fee-value').textContent = '10%';
+        document.getElementById('jp-prize-info').style.display = 'none';
+        document.getElementById('jp-winner-section').style.display = 'none';
+        document.getElementById('jp-join-btn').disabled = true;
+        return;
+    }
+
+    // Status badge
+    const statusEl = document.getElementById('jp-status-badge');
+    if (jp.status === 'waiting') {
+        statusEl.textContent = '🟢 Przyjmujemy wpłaty';
+    } else if (jp.status === 'drawing') {
+        statusEl.textContent = '🔄 Losowanie...';
+    } else if (jp.status === 'completed') {
+        statusEl.textContent = '✅ Zakończona';
+    }
+
+    // Pot value
+    document.getElementById('jp-pot-value').textContent = '🪙 ' + fmt(jp.totalValue || 0);
+
+    // Tickets
+    document.getElementById('jp-tickets-value').textContent = fmt(jp.totalTickets || 0);
+
+    // Fee
+    const feePct = Math.round((jp.houseFee || 0.1) * 100);
+    document.getElementById('jp-fee-value').textContent = feePct + '%';
+
+    // Prize info
+    if (jp.totalValue > 0) {
+        const prize = Math.floor(jp.totalValue * (1 - (jp.houseFee || 0.1)));
+        document.getElementById('jp-prize-info').style.display = 'flex';
+        document.getElementById('jp-prize-value').textContent = '🪙 ' + fmt(prize);
+    } else {
+        document.getElementById('jp-prize-info').style.display = 'none';
+    }
+
+    // Participants
+    const participants = jp.participants || [];
+    document.getElementById('jp-participants-count').textContent = participants.length;
+    
+    const listEl = document.getElementById('jp-participants-list');
+    if (!participants.length) {
+        listEl.innerHTML = '<div class="jp-participants-empty">Brak uczestników. Dołącz pierwszy!</div>';
+    } else {
+        // Sort by tickets descending
+        const sorted = [...participants].sort((a, b) => (b.tickets || 0) - (a.tickets || 0));
+        const maxTickets = sorted[0]?.tickets || 1;
+        listEl.innerHTML = sorted.map(p => {
+            const avatarHtml = p.avatarUrl
+                ? `<img class="jp-part-avatar" src="${p.avatarUrl}" alt="">`
+                : `<div class="jp-part-avatar-empty">?</div>`;
+            const pct = jp.totalTickets > 0 ? ((p.tickets / jp.totalTickets) * 100).toFixed(1) : 0;
+            const barPct = maxTickets > 0 ? (p.tickets / maxTickets) * 100 : 0;
+            return `<div class="jp-part-row">
+                ${avatarHtml}
+                <div class="jp-part-info">
+                    <span class="jp-part-name">${escapeHtml(p.username)}</span>
+                    <span class="jp-part-tickets">${fmt(p.tickets)} biletów (${pct}%)</span>
+                    <div class="jp-part-bar-wrap">
+                        <div class="jp-part-bar-fill" style="width:${barPct}%"></div>
+                    </div>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    // Timer
+    if (jp.timerEnd && jp.status === 'waiting') {
+        const remaining = Math.max(0, Math.floor((jp.timerEnd - Date.now()) / 1000));
+        updateJackpotTimer(remaining, jp.timerEnd);
+    }
+
+    // Winner
+    if (jp.status === 'completed' && jp.winner) {
+        showJackpotResult({
+            winner: jp.winner,
+            totalValue: jp.totalValue,
+            prizeValue: Math.floor(jp.totalValue * (1 - (jp.houseFee || 0.1))),
+            participants: participants
+        });
+    }
+
+    // Join button
+    const joinBtn = document.getElementById('jp-join-btn');
+    joinBtn.disabled = jp.status !== 'waiting';
+    if (jp.status !== 'waiting') {
+        joinBtn.innerHTML = '<span class="jp-join-icon">⏳</span><span class="jp-join-label">Runda zakończona</span>';
+    } else {
+        joinBtn.innerHTML = '<span class="jp-join-icon">🔥</span><span class="jp-join-label">Dołącz do Jackpota</span>';
+    }
+}
+
+// ── Timer update ──
+function updateJackpotTimer(remaining, timerEnd) {
+    const textEl = document.getElementById('jp-timer-text');
+    const progressEl = document.getElementById('jp-timer-progress');
+    const circle = document.getElementById('jp-timer-circle');
+    if (!textEl) return;
+
+    const secs = Math.max(0, remaining);
+    const mins = Math.floor(secs / 60);
+    const displaySecs = secs % 60;
+    textEl.textContent = mins > 0 ? `${mins}:${displaySecs.toString().padStart(2, '0')}` : `${secs}s`;
+
+    // Progress circle (assume 60s total)
+    const total = 60;
+    const pct = total > 0 ? Math.min(100, (secs / total) * 100) : 0;
+    if (progressEl) {
+        const circumference = 2 * Math.PI * 45;
+        const offset = circumference * (1 - pct / 100);
+        progressEl.style.strokeDasharray = `${circumference} ${circumference}`;
+        progressEl.style.strokeDashoffset = offset;
+    }
+
+    // Warning state when low
+    if (circle) {
+        circle.classList.toggle('jp-timer-warning', secs <= 10);
+        circle.classList.toggle('jp-timer-critical', secs <= 5);
+    }
+}
+
+// ── Jackpot result ──
+function showJackpotResult(data) {
+    const section = document.getElementById('jp-winner-section');
+    if (!section) return;
+
+    section.style.display = 'block';
+    document.getElementById('jp-winner-name').textContent = data.winner || '—';
+    
+    const prize = data.prizeValue || Math.floor((data.totalValue || 0) * 0.9);
+    document.getElementById('jp-winner-detail').textContent = `Wygrał 🪙 ${fmt(prize)} z puli 🪙 ${fmt(data.totalValue || 0)}!`;
+
+    // Auto-hide winner after display period
+    const wc = section.querySelector('.jp-winner-announcement');
+    if (wc) {
+        wc.classList.add('jp-winner-pop');
+        setTimeout(() => wc.classList.remove('jp-winner-pop'), 300);
+    }
+
+    // Disable join button
+    const joinBtn = document.getElementById('jp-join-btn');
+    if (joinBtn) {
+        joinBtn.disabled = true;
+        joinBtn.innerHTML = '<span class="jp-join-icon">⏳</span><span class="jp-join-label">Nowa runda za chwilę...</span>';
+    }
+}
+
+// ── Open/Close join modal ──
+window.openJackpotJoinModal = async function() {
+    const jp = await fetchJson('/api/jackpot/current');
+    if (!jp || !jp.active || jp.status !== 'waiting') {
+        showJackpotError('Brak aktywnej rundy Jackpota!');
+        return;
+    }
+
+    document.getElementById('jp-join-pot-value').textContent = '🪙 ' + fmt(jp.totalValue || 0);
+    document.getElementById('jp-join-error').textContent = '';
+    document.getElementById('jp-join-error').style.display = 'none';
+
+    // Load balance
+    try {
+        const stats = await apiJson('/api/profile/stats');
+        document.getElementById('jp-join-balance').textContent = '🪙 ' + fmt(stats.coins || 0);
+    } catch (e) {}
+
+    // Load inventory
+    jackpotSelectedItems = [];
+    try {
+        const data = await apiJson('/api/inventory/with-rap');
+        jackpotInventoryRAP = data.items || [];
+        renderJackpotItemPicker();
+    } catch (e) {
+        jackpotInventoryRAP = [];
+        document.getElementById('jp-join-items-grid').innerHTML = '<div class="jp-items-loading">Błąd ładowania</div>';
+    }
+
+    document.getElementById('jackpot-join-modal').style.display = 'flex';
+    updateJackpotJoinTotal();
+};
+
+window.closeJackpotJoinModal = function() {
+    document.getElementById('jackpot-join-modal').style.display = 'none';
+};
+
+window.setJackpotCoins = function(amount) {
+    document.getElementById('jp-join-coins').value = amount;
+    updateJackpotJoinTotal();
+};
+
+function renderJackpotItemPicker() {
+    const grid = document.getElementById('jp-join-items-grid');
+    const empty = document.getElementById('jp-join-items-empty');
+    
+    grid.innerHTML = '';
+    
+    if (!jackpotInventoryRAP.length) {
+        empty.style.display = 'block';
+        return;
+    }
+    
+    empty.style.display = 'none';
+    
+    const selectedMap = new Map();
+    jackpotSelectedItems.forEach(it => selectedMap.set(it.name.toLowerCase(), it));
+    
+    jackpotInventoryRAP.forEach(it => {
+        const key = it.name.toLowerCase();
+        const sel = selectedMap.get(key);
+        const qty = sel ? sel.qty : 0;
+
+        const card = document.createElement('div');
+        card.className = 'jp-item-card';
+        card.innerHTML = `
+            <div class="jp-item-name">${escapeHtml(it.name)}</div>
+            <div class="jp-item-meta">🪙 ${fmt(it.rap || 0)} · Masz: ${fmt(it.qty)}</div>
+            <div class="jp-item-actions">
+                <button class="jp-item-btn" data-act="minus" data-key="${escapeHtml(key)}">−</button>
+                <span class="jp-item-qty" id="jp-iq-${escapeHtml(key)}">${qty}</span>
+                <button class="jp-item-btn" data-act="plus" data-key="${escapeHtml(key)}">+</button>
+            </div>
+        `;
+
+        card.querySelector('[data-act="minus"]').addEventListener('click', () => {
+            const cur = jackpotSelectedItems.find(x => x.name.toLowerCase() === key);
+            if (!cur) return;
+            if (cur.qty <= 1) {
+                jackpotSelectedItems = jackpotSelectedItems.filter(x => x.name.toLowerCase() !== key);
+            } else {
+                cur.qty--;
+            }
+            renderJackpotItemPicker();
+            updateJackpotJoinTotal();
+        });
+
+        card.querySelector('[data-act="plus"]').addEventListener('click', () => {
+            const avail = it.qty;
+            const cur = jackpotSelectedItems.find(x => x.name.toLowerCase() === key);
+            const curQty = cur ? cur.qty : 0;
+            if (curQty >= avail) return;
+            if (cur) cur.qty++;
+            else jackpotSelectedItems.push({ name: it.name, qty: 1, rap: it.rap || 0 });
+            renderJackpotItemPicker();
+            updateJackpotJoinTotal();
+        });
+
+        grid.appendChild(card);
+    });
+}
+
+function updateJackpotJoinTotal() {
+    const coins = parseInt(document.getElementById('jp-join-coins').value) || 0;
+    let itemsValue = 0;
+    jackpotSelectedItems.forEach(it => {
+        itemsValue += (it.rap || 0) * (it.qty || 1);
+    });
+    const total = coins + itemsValue;
+    document.getElementById('jp-join-total-value').textContent = '🪙 ' + fmt(total);
+    
+    const tickets = Math.max(1, Math.floor(total / 1));
+    document.getElementById('jp-join-tickets-info').textContent = `≈ ${fmt(tickets)} biletów`;
+}
+
+window.submitJackpotJoin = function() {
+    const coins = parseInt(document.getElementById('jp-join-coins').value) || 0;
+    const items = jackpotSelectedItems.map(it => ({
+        name: it.name,
+        qty: it.qty,
+        rap: it.rap || 0
+    }));
+
+    if (coins <= 0 && items.length === 0) {
+        showJackpotError('Dodaj coiny lub itemy!');
+        return;
+    }
+
+    socket.emit('jackpotJoin', { coins, items });
+    closeJackpotJoinModal();
+};
+
+function showJackpotError(msg) {
+    const el = document.getElementById('jp-join-error');
+    if (!el) {
+        alert(msg);
+        return;
+    }
+    el.textContent = msg;
+    el.style.display = 'block';
+    setTimeout(() => { el.style.display = 'none'; }, 4000);
+}
+
+// ── Jackpot History ──
+window.openJackpotHistory = function() {
+    document.getElementById('jackpot-history-modal').style.display = 'flex';
+    socket.emit('jackpotGetHistory');
+};
+
+window.closeJackpotHistory = function() {
+    document.getElementById('jackpot-history-modal').style.display = 'none';
+};
+
+function renderJackpotHistory(history) {
+    const list = document.getElementById('jackpot-history-list');
+    if (!list) return;
+
+    if (!history || !history.length) {
+        list.innerHTML = '<div class="jp-loading" style="padding:30px;color:var(--muted);text-align:center">Brak historii Jackpota.</div>';
+        return;
+    }
+
+    list.innerHTML = history.map((h, i) => {
+        return `<div class="jp-history-item">
+            <div class="jp-hi-header">
+                <span class="jp-hi-num">#${history.length - i}</span>
+                <span class="jp-hi-winner">👑 ${escapeHtml(h.winner)}</span>
+            </div>
+            <div class="jp-hi-details">
+                <span class="jp-hi-prize">🏆 🪙 ${fmt(h.prizeValue || 0)}</span>
+                <span class="jp-hi-pot">Pula: 🪙 ${fmt(h.totalValue || 0)}</span>
+                <span class="jp-hi-players">👥 ${h.participantsCount || 0} graczy</span>
+            </div>
+            <div class="jp-hi-time">${timeAgo(h.timestamp, false)}</div>
+        </div>`;
+    }).join('');
+}
+
+// ── Helper: fetch JSON ──
+async function fetchJson(url) {
+    try {
+        const res = await fetch(url);
+        return await res.json();
+    } catch (e) {
+        return null;
+    }
+}
+
+// ── Refresh balance after jackpot join ──
+function refreshBalance() {
+    apiJson('/api/profile/stats').then(stats => {
+        const balanceEl = document.getElementById('balance-amount');
+        if (balanceEl && stats.coins !== undefined) {
+            balanceEl.textContent = fmt(stats.coins);
+        }
+    }).catch(() => {});
+}
+
 // ── CLOSE MODALS ON BACKGROUND CLICK ───────────────────────────
-['create-modal','view-modal','result-modal','deposit-modal','withdraw-modal','join-modal','game-info-modal','rules-modal','profile-modal','merge-modal'].forEach(id => {
+['create-modal','view-modal','result-modal','deposit-modal','withdraw-modal','join-modal','game-info-modal','rules-modal','profile-modal','merge-modal','jackpot-join-modal','jackpot-history-modal'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener('click', function(e) {

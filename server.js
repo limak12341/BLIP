@@ -1568,6 +1568,111 @@ io.on('connection', (socket) => {
         io.emit('playerListUpdate');
     });
 
+    // ── JACKPOT ──
+    // Wyślij aktualny status jackpota przy wejściu
+    const currentJp = games.getJackpot();
+    if (currentJp) {
+        socket.emit('jackpotStatus', {
+            active: true,
+            id: currentJp.id,
+            status: currentJp.status,
+            totalValue: currentJp.totalValue,
+            totalTickets: currentJp.totalTickets,
+            participants: (currentJp.participants || []).map(p => ({
+                username: p.username,
+                avatarUrl: p.avatarUrl,
+                tickets: p.tickets
+            })),
+            timerEnd: currentJp.timerEnd,
+            houseFee: currentJp.houseFee,
+            winner: currentJp.winner,
+            winningTicket: currentJp.winningTicket
+        });
+        if (currentJp.status === 'waiting') {
+            socket.emit('jackpotTimerUpdate', {
+                timerEnd: currentJp.timerEnd,
+                remaining: Math.max(0, Math.floor((currentJp.timerEnd - Date.now()) / 1000))
+            });
+        }
+    }
+
+    socket.on('jackpotJoin', (data) => {
+        if (!loggedInUser) {
+            socket.emit('jackpotError', { message: 'Musisz być zalogowany!' });
+            return;
+        }
+        if (!checkRateLimit(`jackpotJoin:${loggedInUser}`, 2, 5000)) {
+            socket.emit('jackpotError', { message: 'Za szybko! Odczekaj chwilę.' });
+            return;
+        }
+
+        const jp = games.getJackpot();
+        if (!jp || jp.status !== 'waiting') {
+            socket.emit('jackpotError', { message: 'Brak aktywnej rundy Jackpota!' });
+            return;
+        }
+
+        // Sprawdź czy już uczestniczy
+        if (jp.participants.find(p => p.username === loggedInUser)) {
+            // Może dołożyć więcej
+        }
+
+        const contribution = {
+            coins: parseInt(data.coins) || 0,
+            items: data.items || []
+        };
+
+        const result = games.addToJackpot(loggedInUser, contribution, db);
+        if (!result) {
+            socket.emit('jackpotError', { message: 'Nie możesz dołączyć. Sprawdź saldo i przedmioty.' });
+            return;
+        }
+
+        // Broadcast updated jackpot status
+        broadcastJackpotStatus(jp);
+
+        // Wyślij potwierdzenie do gracza
+        socket.emit('jackpotJoined', {
+            success: true,
+            tickets: result.tickets,
+            value: result.value,
+            totalTickets: jp.totalTickets,
+            totalValue: jp.totalValue
+        });
+
+        io.emit('playerListUpdate');
+        console.log(`[Jackpot] ${loggedInUser} joined with ${result.value} value (${result.tickets} tickets)`);
+    });
+
+    socket.on('jackpotGetStatus', () => {
+        const jp = games.getJackpot();
+        if (!jp) {
+            socket.emit('jackpotStatus', { active: false });
+            return;
+        }
+        socket.emit('jackpotStatus', {
+            active: true,
+            id: jp.id,
+            status: jp.status,
+            totalValue: jp.totalValue,
+            totalTickets: jp.totalTickets,
+            participants: (jp.participants || []).map(p => ({
+                username: p.username,
+                avatarUrl: p.avatarUrl,
+                tickets: p.tickets
+            })),
+            timerEnd: jp.timerEnd,
+            houseFee: jp.houseFee,
+            winner: jp.winner,
+            winningTicket: jp.winningTicket
+        });
+    });
+
+    socket.on('jackpotGetHistory', () => {
+        const history = games.getJackpotHistory();
+        socket.emit('jackpotHistory', history.slice(0, 30));
+    });
+
     // ── Live Feed: send recent games on request ──
     socket.on('getRecentGames', () => {
         socket.emit('recentGamesUpdated', games.getRecentGames());
@@ -1766,6 +1871,192 @@ if (require.main === module) {
             console.warn('⚠️  ADMIN_TOKEN nie skonfigurowany! Panel admina nie będzie dostępny.');
             console.warn('    Ustaw ADMIN_TOKEN w pliku .env, np.: ADMIN_TOKEN=twoj-sekretny-token');
         }
+
+        // ── Start Jackpot ──
+        const firstJp = games.startJackpotRound();
+        console.log('[Jackpot] First round started:', firstJp.id);
+        startJackpotTimer();
+        setTimeout(() => broadcastJackpotStatus(firstJp), 500);
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  JACKPOT SYSTEM
+// ═══════════════════════════════════════════════════════════════
+
+// ── Jackpot REST API ──
+app.get('/api/jackpot/status', (req, res) => {
+    const jp = games.getJackpot();
+    if (!jp) {
+        return res.json({ active: false });
+    }
+    res.json({
+        active: true,
+        id: jp.id,
+        status: jp.status,
+        totalValue: jp.totalValue,
+        totalTickets: jp.totalTickets,
+        participants: jp.participants.map(p => ({
+            username: p.username,
+            avatarUrl: p.avatarUrl,
+            tickets: p.tickets
+        })),
+        timerEnd: jp.timerEnd,
+        houseFee: jp.houseFee,
+        winner: jp.winner,
+        winningTicket: jp.winningTicket,
+        fairResult: jp.fairResult,
+        serverSeed: jp.status === 'completed' ? jp.serverSeed : null,
+        nonce: jp.nonce
+    });
+});
+
+app.get('/api/jackpot/history', (req, res) => {
+    const history = games.getJackpotHistory();
+    res.json({ history: history.slice(0, 50) });
+});
+
+app.get('/api/jackpot/current', (req, res) => {
+    const jp = games.getJackpot();
+    if (!jp) {
+        return res.json({ active: false, message: 'No active jackpot round' });
+    }
+    res.json({
+        active: true,
+        id: jp.id,
+        status: jp.status,
+        totalValue: jp.totalValue,
+        totalTickets: jp.totalTickets,
+        participantsCount: jp.participants.length,
+        participants: jp.participants.map(p => ({
+            username: p.username,
+            avatarUrl: p.avatarUrl,
+            tickets: p.tickets
+        })),
+        timerEnd: jp.timerEnd,
+        houseFee: jp.houseFee
+    });
+});
+
+// ── Jackpot Timer ──
+let jackpotTickInterval = null;
+let jackpotAutoStartTimer = null;
+
+function startJackpotTimer() {
+    if (jackpotTickInterval) clearInterval(jackpotTickInterval);
+    jackpotTickInterval = setInterval(tickJackpot, 1000);
+}
+
+function stopJackpotTimer() {
+    if (jackpotTickInterval) {
+        clearInterval(jackpotTickInterval);
+        jackpotTickInterval = null;
+    }
+}
+
+function tickJackpot() {
+    const jp = games.getJackpot();
+    if (!jp) return;
+
+    const now = Date.now();
+
+    if (jp.status === 'waiting' && now >= jp.timerEnd) {
+        // Time's up! Draw winner
+        console.log('[Jackpot] Timer ended, drawing winner...');
+        const result = games.drawJackpotWinner(pf);
+        if (result && result.winner) {
+            const prize = games.distributeJackpotPrize(db);
+            console.log('[Jackpot] Winner:', result.winner, 'Prize:', prize?.prizeValue);
+
+            // Save to history
+            games.addJackpotGame({
+                id: jp.id,
+                winner: result.winner,
+                totalValue: jp.totalValue,
+                prizeValue: prize?.prizeValue || 0,
+                houseFee: prize?.houseFee || 0,
+                participants: jp.participants.map(p => p.username),
+                participantsCount: jp.participants.length,
+                winningTicket: result.winningTicket,
+                fairResult: result.fairResult,
+                serverSeed: result.serverSeed
+            });
+
+            // Rotate server seed
+            pf.rotateServerSeed();
+
+            // Broadcast result
+            io.emit('jackpotResult', {
+                id: jp.id,
+                winner: result.winner,
+                totalValue: jp.totalValue,
+                prizeValue: prize?.prizeValue || 0,
+                participants: jp.participants.map(p => ({
+                    username: p.username,
+                    avatarUrl: p.avatarUrl,
+                    tickets: p.tickets
+                })),
+                totalTickets: jp.totalTickets,
+                winningTicket: result.winningTicket,
+                fairResult: result.fairResult,
+                serverSeed: result.serverSeed
+            });
+
+            // Add to live feed
+            games.addRecentGame({
+                type: 'jackpot',
+                winner: result.winner,
+                loser: '-',
+                amount: jp.totalValue
+            });
+            io.emit('recentGamesUpdated', games.getRecentGames());
+            io.emit('playerListUpdate');
+
+            // Schedule next round
+            if (jackpotAutoStartTimer) clearTimeout(jackpotAutoStartTimer);
+            jackpotAutoStartTimer = setTimeout(() => {
+                const newJp = games.startJackpotRound();
+                console.log('[Jackpot] New round started:', newJp.id);
+                broadcastJackpotStatus(newJp);
+            }, games.JACKPOT_DISPLAY_MS);
+        } else {
+            // No participants, restart immediately
+            const newJp = games.startJackpotRound();
+            console.log('[Jackpot] No participants, new round:', newJp.id);
+            broadcastJackpotStatus(newJp);
+        }
+        broadcastJackpotStatus(result || jp);
+    }
+
+    // Broadcast timer every second (only if status is waiting)
+    if (jp.status === 'waiting') {
+        io.emit('jackpotTimerUpdate', {
+            timerEnd: jp.timerEnd,
+            remaining: Math.max(0, Math.floor((jp.timerEnd - Date.now()) / 1000))
+        });
+    }
+}
+
+function broadcastJackpotStatus(jp) {
+    if (!jp) {
+        io.emit('jackpotStatus', { active: false });
+        return;
+    }
+    io.emit('jackpotStatus', {
+        active: true,
+        id: jp.id,
+        status: jp.status,
+        totalValue: jp.totalValue,
+        totalTickets: jp.totalTickets,
+        participants: (jp.participants || []).map(p => ({
+            username: p.username,
+            avatarUrl: p.avatarUrl,
+            tickets: p.tickets
+        })),
+        timerEnd: jp.timerEnd,
+        houseFee: jp.houseFee,
+        winner: jp.winner,
+        winningTicket: jp.winningTicket
     });
 }
 

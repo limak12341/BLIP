@@ -431,25 +431,84 @@
       <!-- TAB: JACKPOT -->
       <div id="tab-jackpot" class="tab-content" style="display:none">
         <div class="jp-container">
-          <div class="jp-icon">🎰</div>
-          <h2 class="jp-title">Jackpot</h2>
-          <p class="jp-sub">Tryb Jackpot jest w przygotowaniu!</p>
-          <div class="jp-bar-wrap">
-            <div class="jp-bar-fill"></div>
+          <!-- Header -->
+          <div class="jp-header">
+            <div class="jp-title-row">
+              <span class="jp-title-icon">🎰</span>
+              <span class="jp-title">Jackpot</span>
+            </div>
+            <div class="jp-status-badge" id="jp-status-badge">🟢 Waiting</div>
           </div>
-          <div class="jp-features">
-            <div class="jp-feature">
-              <span class="jp-f-icon">🔥</span>
-              <span>Wkrótce: graj o ogromną pulę</span>
+
+          <!-- Główna karta jackpota -->
+          <div class="jp-main-card">
+            <div class="jp-pot-display">
+              <div class="jp-pot-icon">🏆</div>
+              <div class="jp-pot-value" id="jp-pot-value">🪙 0</div>
+              <div class="jp-pot-label">Łączna pula</div>
             </div>
-            <div class="jp-feature">
-              <span class="jp-f-icon">🎯</span>
-              <span>Im więcej włożysz, tym większa szansa</span>
+
+            <!-- Timer -->
+            <div class="jp-timer-wrap" id="jp-timer-wrap">
+              <div class="jp-timer-circle" id="jp-timer-circle">
+                <svg class="jp-timer-svg" viewBox="0 0 100 100">
+                  <circle class="jp-timer-bg" cx="50" cy="50" r="45"/>
+                  <circle class="jp-timer-progress" id="jp-timer-progress" cx="50" cy="50" r="45"/>
+                </svg>
+                <div class="jp-timer-text" id="jp-timer-text">60s</div>
+              </div>
+              <div class="jp-timer-label">Do końca rundy</div>
             </div>
-            <div class="jp-feature">
-              <span class="jp-f-icon">🏆</span>
-              <span>Zwycięzca zabiera całość!</span>
+
+            <!-- House fee info -->
+            <div class="jp-house-fee">
+              <span class="jp-fee-label">Prowizja</span>
+              <span class="jp-fee-value" id="jp-fee-value">10%</span>
             </div>
+
+            <!-- Prize info -->
+            <div class="jp-prize-info" id="jp-prize-info" style="display:none">
+              <div class="jp-prize-label">Nagroda dla zwycięzcy</div>
+              <div class="jp-prize-value" id="jp-prize-value">🪙 0</div>
+            </div>
+          </div>
+
+          <!-- Tickets info -->
+          <div class="jp-tickets-info">
+            <span class="jp-tickets-label">Łącznie biletów:</span>
+            <span class="jp-tickets-value" id="jp-tickets-value">0</span>
+          </div>
+
+          <!-- Participants list -->
+          <div class="jp-participants-section">
+            <div class="jp-participants-header">
+              <span class="jp-participants-title">👥 Uczestnicy</span>
+              <span class="jp-participants-count" id="jp-participants-count">0</span>
+            </div>
+            <div class="jp-participants-list" id="jp-participants-list">
+              <div class="jp-participants-empty">Brak uczestników. Dołącz pierwszy!</div>
+            </div>
+          </div>
+
+          <!-- Winner announcement -->
+          <div class="jp-winner-section" id="jp-winner-section" style="display:none">
+            <div class="jp-winner-announcement">
+              <div class="jp-winner-icon">👑</div>
+              <div class="jp-winner-content">
+                <div class="jp-winner-label">Zwycięzca!</div>
+                <div class="jp-winner-name" id="jp-winner-name">—</div>
+                <div class="jp-winner-detail" id="jp-winner-detail"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Action buttons -->
+          <div class="jp-actions">
+            <button class="jp-join-btn btn-glow" id="jp-join-btn" onclick="openJackpotJoinModal()">
+              <span class="jp-join-icon">🔥</span>
+              <span class="jp-join-label">Dołącz do Jackpota</span>
+            </button>
+            <button class="jp-history-btn" onclick="openJackpotHistory()">📜 Historia</button>
           </div>
         </div>
       </div>
@@ -936,6 +995,70 @@
           </div>
         </div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: JACKPOT JOIN -->
+<div id="jackpot-join-modal" class="modal-overlay">
+  <div class="modal modal-wide">
+    <div class="modal-header">
+      <span class="modal-title">🔥 Dołącz do Jackpota</span>
+      <button class="modal-close" onclick="closeJackpotJoinModal()">✕</button>
+    </div>
+    <div class="jp-join-section">
+      <div class="jp-join-info">
+        <span class="jp-join-info-label">Aktualna pula:</span>
+        <span class="jp-join-info-value" id="jp-join-pot-value">🪙 0</span>
+      </div>
+      <div class="jp-join-info">
+        <span class="jp-join-info-label">Twój stan:</span>
+        <span class="jp-join-info-value" id="jp-join-balance">🪙 0</span>
+      </div>
+
+      <!-- Coins deposit -->
+      <div class="jp-join-section-label">🪙 Wpłać coiny</div>
+      <div class="jp-coin-deposit">
+        <input class="jp-coin-input" id="jp-join-coins" type="number" min="1" placeholder="Kwota w 🪙..." autocomplete="off">
+        <div class="jp-quick-amounts">
+          <button class="jp-quick-btn" onclick="setJackpotCoins(100)">100</button>
+          <button class="jp-quick-btn" onclick="setJackpotCoins(500)">500</button>
+          <button class="jp-quick-btn" onclick="setJackpotCoins(1000)">1K</button>
+          <button class="jp-quick-btn" onclick="setJackpotCoins(5000)">5K</button>
+          <button class="jp-quick-btn" onclick="setJackpotCoins(10000)">10K</button>
+        </div>
+      </div>
+
+      <!-- Items deposit -->
+      <div class="jp-join-section-label">💎 Dodaj itemy (opcjonalnie)</div>
+      <div class="jp-items-grid" id="jp-join-items-grid">
+        <div class="jp-items-loading">Ładowanie inventarza...</div>
+      </div>
+      <div id="jp-join-items-empty" class="empty-mini" style="display:none">Brak itemów do dodania.</div>
+
+      <!-- Total -->
+      <div class="jp-join-total">
+        <span>Łączna wartość:</span>
+        <strong id="jp-join-total-value">🪙 0</strong>
+        <span id="jp-join-tickets-info" style="font-size:.75rem;color:var(--muted)"></span>
+      </div>
+
+      <div id="jp-join-error" class="jp-join-error"></div>
+
+      <button class="flip-btn" onclick="submitJackpotJoin()" style="margin-top:16px">🔥 Dołącz do Jackpota</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: JACKPOT HISTORY -->
+<div id="jackpot-history-modal" class="modal-overlay">
+  <div class="modal modal-wide">
+    <div class="modal-header">
+      <span class="modal-title">📜 Historia Jackpota</span>
+      <button class="modal-close" onclick="closeJackpotHistory()">✕</button>
+    </div>
+    <div id="jackpot-history-list" class="jp-history-list">
+      <div class="jp-loading">Ładowanie...</div>
     </div>
   </div>
 </div>
