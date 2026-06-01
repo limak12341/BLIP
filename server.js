@@ -384,6 +384,13 @@ app.post('/api/admin/players/:id/warn', requireAdmin, (req, res) => {
     if (!warnings[username]) warnings[username] = [];
     warnings[username].push({ reason, by: 'admin', time: Date.now() });
     db.saveWarnings(warnings);
+
+    // Log it
+    let logs = [];
+    try { logs = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'logs.json'), 'utf8')); } catch (e) { logs = []; }
+    logs.push({ type: 'warn', description: `${username} warned: ${reason}`, adminUsername: 'admin', timestamp: Date.now() });
+    fs.writeFileSync(path.join(DATA_DIR, 'logs.json'), JSON.stringify(logs));
+
     res.json({ success: true });
 });
 
@@ -464,6 +471,108 @@ app.post('/api/admin/chat-filter/save', requireAdmin, (req, res) => {
     if (typeof enabled === 'boolean') filter.enabled = enabled;
     if (punishment) filter.punishment = punishment;
     db.saveFilter(filter);
+    res.json({ success: true });
+});
+
+// ── Admin REST API: Requests (Zgłoszenia) ────────────────────────
+app.get('/api/admin/requests', requireAdmin, (req, res) => {
+    const statusFilter = req.query.status || '';
+    const typeFilter = req.query.type || '';
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+
+    let requests = [];
+    try { requests = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'requests.json'), 'utf8')); } catch (e) { requests = []; }
+
+    if (statusFilter) requests = requests.filter(r => r.status === statusFilter);
+    if (typeFilter) requests = requests.filter(r => r.type === typeFilter);
+    // Latest first
+    requests.reverse();
+
+    const total = requests.length;
+    const pages = Math.ceil(total / limit) || 1;
+    const paginated = requests.slice((page - 1) * limit, page * limit);
+
+    res.json({ requests: paginated, total, pages, page });
+});
+
+app.post('/api/admin/requests/:id/approve', requireAdmin, (req, res) => {
+    const { adminNote } = req.body || {};
+    let requests = [];
+    try { requests = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'requests.json'), 'utf8')); } catch (e) { requests = []; }
+    const idx = requests.findIndex(r => r._id === req.params.id);
+    if (idx === -1) return res.status(404).json({ success: false, message: 'Request not found' });
+    if (requests[idx].status === 'approved' || requests[idx].status === 'rejected' || requests[idx].status === 'sent') {
+        return res.json({ success: true, alreadyProcessed: true });
+    }
+
+    requests[idx].status = 'approved';
+    if (adminNote) requests[idx].adminNote = adminNote;
+    requests[idx].updatedAt = Date.now();
+    fs.writeFileSync(path.join(DATA_DIR, 'requests.json'), JSON.stringify(requests, null, 2));
+
+    // Add coins to player if deposit
+    if (requests[idx].type === 'deposit' && requests[idx].totalValue) {
+        const player = db.getPlayer(requests[idx].username);
+        player.coins += requests[idx].totalValue;
+        db.savePlayer(requests[idx].username, player);
+    }
+
+    // Log it
+    let logs = [];
+    try { logs = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'logs.json'), 'utf8')); } catch (e) { logs = []; }
+    logs.push({
+        type: 'approve',
+        description: `Approved ${requests[idx].type} from ${requests[idx].username} (${requests[idx].items?.length || 0} items)`,
+        adminUsername: 'admin',
+        timestamp: Date.now()
+    });
+    fs.writeFileSync(path.join(DATA_DIR, 'logs.json'), JSON.stringify(logs));
+
+    res.json({ success: true });
+});
+
+app.post('/api/admin/requests/:id/reject', requireAdmin, (req, res) => {
+    const { adminNote } = req.body || {};
+    let requests = [];
+    try { requests = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'requests.json'), 'utf8')); } catch (e) { requests = []; }
+    const idx = requests.findIndex(r => r._id === req.params.id);
+    if (idx === -1) return res.status(404).json({ success: false, message: 'Request not found' });
+    if (requests[idx].status === 'approved' || requests[idx].status === 'rejected' || requests[idx].status === 'sent') {
+        return res.json({ success: true, alreadyProcessed: true });
+    }
+
+    // If it was a withdraw request, restore the items to the player's inventory
+    if (requests[idx].type === 'withdraw' && requests[idx].items) {
+        const player = db.getPlayer(requests[idx].username);
+        for (const item of requests[idx].items) {
+            player.inventory = player.inventory || [];
+            const existing = player.inventory.find(i => i.name === item.name);
+            if (existing) {
+                existing.qty = (existing.qty || 0) + (item.qty || 1);
+            } else {
+                player.inventory.push({ name: item.name, qty: item.qty || 1, rap: item.rap || 0 });
+            }
+        }
+        db.savePlayer(requests[idx].username, player);
+    }
+
+    requests[idx].status = 'rejected';
+    if (adminNote) requests[idx].adminNote = adminNote;
+    requests[idx].updatedAt = Date.now();
+    fs.writeFileSync(path.join(DATA_DIR, 'requests.json'), JSON.stringify(requests, null, 2));
+
+    // Log it
+    let logs = [];
+    try { logs = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'logs.json'), 'utf8')); } catch (e) { logs = []; }
+    logs.push({
+        type: 'reject',
+        description: `Rejected ${requests[idx].type} from ${requests[idx].username} (${requests[idx].items?.length || 0} items)`,
+        adminUsername: 'admin',
+        timestamp: Date.now()
+    });
+    fs.writeFileSync(path.join(DATA_DIR, 'logs.json'), JSON.stringify(logs));
+
     res.json({ success: true });
 });
 

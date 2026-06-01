@@ -70,6 +70,7 @@
         <button class="chip" id="tab-btn-dashboard">📊 Dashboard</button>
         <button class="chip" id="tab-btn-seeds">🌱 Seed Explorer</button>
         <button class="chip" id="tab-btn-filter">🔇 Filtr słów</button>
+        <button class="chip" id="tab-btn-values">💰 Values</button>
       </div>
     </div>
 
@@ -81,9 +82,13 @@
         <button class="chip" data-status="valued" data-type="">Wycenione 🤖</button>
         <button class="chip" data-status="" data-type="deposit">Deposit</button>
         <button class="chip" data-status="" data-type="withdraw">Withdraw</button>
-      </div>
-      <div class="admin-grid" id="list"></div>
+      </div>        <div class="admin-grid" id="list"></div>
       <div class="empty-mini" id="empty" style="display:none">Brak zgłoszeń do pokazania.</div>
+      <div id="requests-pagination" style="display:none;margin-top:14px;align-items:center;justify-content:center;gap:12px">
+        <button id="requests-prev-btn" style="padding:8px 16px;border-radius:8px;background:var(--surf2);border:1px solid var(--border2);color:var(--text);font-weight:700;font-size:.82rem;cursor:pointer;font-family:inherit">← Poprzednia</button>
+        <span id="requests-page-info" style="font-size:.85rem;font-weight:700;color:var(--muted)"></span>
+        <button id="requests-next-btn" style="padding:8px 16px;border-radius:8px;background:var(--surf2);border:1px solid var(--border2);color:var(--text);font-weight:700;font-size:.82rem;cursor:pointer;font-family:inherit">Następna →</button>
+      </div>
     </div>
 
     <!-- TAB: Gracze -->
@@ -311,7 +316,65 @@
       </div>
     </div>
 
-        <!-- TAB: Chat Filter -->
+        <!-- TAB: Live Values -->
+    <div id="tab-values" style="display:none">
+      <div class="admin-title" style="margin-bottom:14px">💰 Live Values — Pet Simulator 99</div>
+
+      <!-- Stats card -->
+      <div class="admin-card" style="margin-bottom:16px">
+        <div id="values-stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px">
+          <div style="text-align:center;padding:8px">
+            <div style="font-size:1.4rem;font-weight:900;font-family:'Orbitron',monospace;color:#a78bfa" id="values-total">—</div>
+            <div style="font-size:.7rem;color:var(--muted);font-weight:700;margin-top:4px;text-transform:uppercase">Itemów w cache</div>
+          </div>
+          <div style="text-align:center;padding:8px">
+            <div style="font-size:1.4rem;font-weight:900;font-family:'Orbitron',monospace;color:#2ed573" id="values-status">—</div>
+            <div style="font-size:.7rem;color:var(--muted);font-weight:700;margin-top:4px;text-transform:uppercase">Status cache</div>
+          </div>
+          <div style="text-align:center;padding:8px">
+            <div style="font-size:1.4rem;font-weight:900;font-family:'Orbitron',monospace;color:#f0b429" id="values-age">—</div>
+            <div style="font-size:.7rem;color:var(--muted);font-weight:700;margin-top:4px;text-transform:uppercase">Wiek cache</div>
+          </div>
+          <div style="text-align:center;padding:8px">
+            <div style="font-size:.9rem;font-weight:900;font-family:'Orbitron',monospace;color:#0abde3" id="values-categories">—</div>
+            <div style="font-size:.7rem;color:var(--muted);font-weight:700;margin-top:4px;text-transform:uppercase">Kategorie</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+        <button id="values-sync-btn" class="flip-btn" style="padding:12px 24px;font-size:.85rem;width:auto;display:flex;align-items:center;gap:8px">
+          ↻ Synchronizuj wartości
+        </button>
+        <span id="values-sync-status" style="font-size:.85rem;font-weight:700;display:flex;align-items:center"></span>
+        <button id="values-refresh-btn" class="btn-ok" style="padding:10px 18px;font-size:.78rem">↻ Odśwież podgląd</button>
+      </div>
+
+      <!-- Search -->
+      <div class="admin-card" style="margin-bottom:16px">
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <input id="values-search-input" type="text" placeholder="Szukaj itemu..." 
+            style="flex:1;min-width:200px;padding:10px 14px;border-radius:10px;background:var(--surf2);border:1px solid var(--border2);color:var(--text);font-family:inherit;font-size:.85rem;outline:none">
+          <select id="values-category-filter" 
+            style="padding:8px 14px;border-radius:10px;background:var(--surf2);border:1px solid var(--border2);color:var(--text);font-family:inherit;font-size:.8rem;font-weight:600;outline:none;cursor:pointer">
+            <option value="all">Wszystkie kategorie</option>
+            <option value="Huge">Huge</option>
+            <option value="Titanic">Titanic</option>
+            <option value="Gargantuan">Gargantuan</option>
+            <option value="Gem">Gem</option>
+            <option value="Exclusive">Exclusive</option>
+            <option value="Misc">Misc</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Items list -->
+      <div id="values-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px"></div>
+      <div class="empty-mini" id="values-empty" style="display:none">Brak itemów. Kliknij "Synchronizuj" aby pobrać wartości.</div>
+    </div>
+
+    <!-- TAB: Chat Filter -->
     <div id="tab-filter" style="display:none">
       <div class="admin-title" style="margin-bottom:14px">🔇 Filtr zabronionych słów</div>
 
@@ -434,16 +497,18 @@
   let playersSearch = '';
   let logsPage = 1;
   let promoPage = 1;
+  let requestsPage = 1;
   const PLAYERS_LIMIT = 20;
   const LOGS_LIMIT = 50;
   const PROMO_LIMIT = 20;
+  const REQUESTS_LIMIT = 20;
 
 
 
   // ── TAB SWITCHING: update for new tabs ──
   function switchTab(tab) {
     currentAdminTab = tab;
-    ['tab-requests','tab-players','tab-logs','tab-warnings','tab-system','tab-promo','tab-dashboard','tab-seeds','tab-filter'].forEach(id => {
+    ['tab-requests','tab-players','tab-logs','tab-warnings','tab-system','tab-promo','tab-dashboard','tab-seeds','tab-filter','tab-values'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = id === 'tab-' + tab ? 'block' : 'none';
     });
@@ -460,6 +525,7 @@
     else if (tab === 'dashboard') refreshDashboard();
     else if (tab === 'seeds') refreshSeedExplorer();
     else if (tab === 'filter') refreshFilterTab();
+    else if (tab === 'values') refreshValuesTab();
     else if (tab === 'gracze') refreshPlayers(1); // alias PL
     else if (tab === 'logi') refreshLogs(1); // alias PL
   }
@@ -471,9 +537,9 @@
   document.getElementById('tab-btn-warnings').addEventListener('click', () => switchTab('warnings'));
   document.getElementById('tab-btn-system').addEventListener('click', () => switchTab('system'));
   document.getElementById('tab-btn-promo').addEventListener('click', () => switchTab('promo'));
-  document.getElementById('tab-btn-dashboard').addEventListener('click', () => switchTab('dashboard'));
   document.getElementById('tab-btn-seeds').addEventListener('click', () => switchTab('seeds'));
   document.getElementById('tab-btn-filter').addEventListener('click', () => switchTab('filter'));
+  document.getElementById('tab-btn-values').addEventListener('click', () => switchTab('values'));
   document.getElementById('dash-refresh-btn').addEventListener('click', refreshDashboard);
 
   // ── LOGS ──
@@ -655,14 +721,36 @@
     return `<span style="display:inline-block;padding:2px 8px;border-radius:6px;font-size:.68rem;font-weight:800;text-transform:uppercase;background:${color}18;color:${color};border:1px solid ${color}44">${roleLabel(role)}</span>`;
   }
 
-  async function refresh() {
+  async function refresh(page) {
+    if (page !== undefined) requestsPage = page;
+    const pagination = document.getElementById('requests-pagination');
+    const prevBtn = document.getElementById('requests-prev-btn');
+    const nextBtn = document.getElementById('requests-next-btn');
+    const pageInfo = document.getElementById('requests-page-info');
+
     const qs = new URLSearchParams();
     if (filterStatus) qs.set('status', filterStatus);
     if (filterType) qs.set('type', filterType);
+    qs.set('page', requestsPage);
+    qs.set('limit', REQUESTS_LIMIT);
     const data = await apiJson('/api/admin/requests?' + qs.toString());
     const reqs = data.requests || [];
     listEl.innerHTML = '';
     emptyEl.style.display = reqs.length ? 'none' : 'block';
+
+    // Pagination
+    const total = data.total || 0;
+    const pages = data.pages || 1;
+    if (pages > 1) {
+      pagination.style.display = 'flex';
+      pageInfo.textContent = 'Strona ' + requestsPage + ' z ' + pages + ' (łącznie ' + total + ' zgłoszeń)';
+      prevBtn.disabled = requestsPage <= 1;
+      prevBtn.style.opacity = requestsPage <= 1 ? '0.4' : '1';
+      nextBtn.disabled = requestsPage >= pages;
+      nextBtn.style.opacity = requestsPage >= pages ? '0.4' : '1';
+    } else {
+      pagination.style.display = 'none';
+    }
 
     reqs.forEach(r => {
       const items = (r.items || []).map(it => escapeHtml(it.name) + ' x' + fmt(it.qty)).join(', ');
@@ -682,7 +770,7 @@
         </div>
         <div style="margin-top:8px" class="login-note">
           Użytkownik: <b>${escapeHtml(r.username || r.userId)}</b>
-          <span style="opacity:.6">(${escapeHtml(r.userId)})</span>
+          <span style="opacity:.6">(${escapeHtml(r._id ? r._id.slice(0,12) : '—')})</span>
         </div>
         <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px">
           ${(r.items||[]).map(it => `<span style="background:var(--surf2);padding:4px 10px;border-radius:8px;font-size:.82rem;border:1px solid var(--border)">${escapeHtml(it.name)} <b>x${it.qty||1}</b></span>`).join('') || '—'}
@@ -753,7 +841,7 @@
       ch.classList.add('active');
       filterStatus = ch.getAttribute('data-status') || '';
       filterType = ch.getAttribute('data-type') || '';
-      try { await refresh(); } catch (e) { alert(e.message); }
+      try { await refresh(1); } catch (e) { alert(e.message); }
     });
   });
 
@@ -939,6 +1027,14 @@
   });
   document.getElementById('logs-next-btn').addEventListener('click', () => {
     refreshLogs(logsPage + 1);
+  });
+
+  // ── REQUESTS PAGINATION ──
+  document.getElementById('requests-prev-btn').addEventListener('click', () => {
+    if (requestsPage > 1) refresh(requestsPage - 1);
+  });
+  document.getElementById('requests-next-btn').addEventListener('click', () => {
+    refresh(requestsPage + 1);
   });
 
   // ── PLAYERS PAGINATION ──
@@ -1485,6 +1581,171 @@
     await saveFilterToServer();
     renderFilterWords();
   });
+
+  // ── VALUES TAB ──
+  let valuesRefreshTimer = null;
+
+  async function refreshValuesTab() {
+    await loadValuesStats();
+    await searchValues();
+  }
+
+  async function loadValuesStats() {
+    try {
+      const stats = await apiJson('/api/values/stats');
+      document.getElementById('values-total').textContent = stats.totalItems || '—';
+      
+      const statusEl = document.getElementById('values-status');
+      if (stats.hasCache) {
+        if (stats.isStale) {
+          statusEl.textContent = '⚠️ Nieświeży';
+          statusEl.style.color = 'var(--gold)';
+        } else {
+          statusEl.textContent = '✅ Świeży';
+          statusEl.style.color = 'var(--green)';
+        }
+      } else {
+        statusEl.textContent = '❌ Brak cache';
+        statusEl.style.color = 'var(--red)';
+      }
+
+      const ageEl = document.getElementById('values-age');
+      if (stats.lastFetchTime) {
+        const mins = Math.floor(stats.cacheAge / 60000);
+        if (mins < 60) {
+          ageEl.textContent = mins + ' min';
+        } else {
+          ageEl.textContent = (mins / 60).toFixed(1) + ' h';
+        }
+      } else {
+        ageEl.textContent = '—';
+      }
+
+      const cats = stats.categories || {};
+      const catList = Object.entries(cats).map(([cat, count]) => cat + ': ' + count).join(' · ');
+      document.getElementById('values-categories').textContent = catList || '—';
+      
+      // Enable/disable sync button
+      document.getElementById('values-sync-btn').disabled = false;
+      document.getElementById('values-sync-btn').textContent = '↻ Synchronizuj wartości';
+    } catch (e) {
+      document.getElementById('values-total').textContent = '—';
+      document.getElementById('values-status').textContent = '❌ Błąd: ' + escapeHtml(e.message);
+      document.getElementById('values-status').style.color = 'var(--red)';
+    }
+  }
+
+  async function searchValues() {
+    const q = document.getElementById('values-search-input').value.trim();
+    const category = document.getElementById('values-category-filter').value;
+    const listEl = document.getElementById('values-list');
+    const emptyEl = document.getElementById('values-empty');
+    
+    listEl.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:20px;color:var(--muted)">Ładowanie...</div>';
+    emptyEl.style.display = 'none';
+    
+    try {
+      let url = '/api/values/search?limit=50';
+      if (q) url += '&q=' + encodeURIComponent(q);
+      if (category && category !== 'all') url += '&category=' + encodeURIComponent(category);
+      
+      const data = await apiJson(url);
+      const items = data.results || [];
+      
+      listEl.innerHTML = '';
+      emptyEl.style.display = items.length ? 'none' : 'block';
+      
+      items.forEach(item => {
+        const value = item.value || item.rap || 0;
+        const formattedValue = formatBigNumber(value);
+        const trendIcon = item.trend === 'up' ? '📈' : item.trend === 'down' ? '📉' : '➡️';
+        const categoryColors = {
+          Huge: '#a78bfa',
+          Titanic: '#f0b429',
+          Gargantuan: '#e84118',
+          Gem: '#00e5ff',
+          Exclusive: '#ff6b81',
+          Misc: '#6b7a99'
+        };
+        const catColor = categoryColors[item.category] || '#6b7a99';
+        
+        const card = document.createElement('div');
+        card.style.cssText = 'background:var(--surf);border:1px solid var(--border);border-radius:12px;padding:12px 14px;display:flex;align-items:center;gap:10px';
+        card.innerHTML = `
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:700;font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escapeHtml(item.name)}">
+              ${escapeHtml(item.name)}
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:4px">
+              <span style="font-size:.65rem;font-weight:700;padding:2px 8px;border-radius:5px;background:${catColor}22;color:${catColor};border:1px solid ${catColor}44">
+                ${item.category || '—'}
+              </span>
+              <span style="font-size:.65rem;color:var(--muted)">${trendIcon}</span>
+              ${item.variant && item.variant !== 'Normal' ? `<span style="font-size:.62rem;color:var(--muted);padding:1px 6px;border-radius:4px;background:var(--surf2);border:1px solid var(--border)">${escapeHtml(item.variant)}</span>` : ''}
+            </div>
+          </div>
+          <div style="font-family:'Orbitron',monospace;font-size:.95rem;font-weight:900;color:var(--gold);white-space:nowrap" title="${value.toLocaleString()}">
+            ${formattedValue}
+          </div>
+        `;
+        listEl.appendChild(card);
+      });
+    } catch (e) {
+      listEl.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:20px;color:var(--red)">❌ Błąd: ' + escapeHtml(e.message) + '</div>';
+    }
+  }
+
+  function formatBigNumber(num) {
+    if (num >= 1_000_000_000_000) return (num / 1_000_000_000_000).toFixed(1) + 'T';
+    if (num >= 1_000_000_000) return (num / 1_000_000_000).toFixed(1) + 'B';
+    if (num >= 1_000_000) return (num / 1_000_000).toFixed(1) + 'M';
+    if (num >= 1_000) return (num / 1_000).toFixed(1) + 'K';
+    return String(num);
+  }
+
+  // Sync button
+  document.getElementById('values-sync-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('values-sync-btn');
+    const status = document.getElementById('values-sync-status');
+    
+    btn.disabled = true;
+    btn.innerHTML = '⏳ Synchronizacja...';
+    status.textContent = '';
+    
+    try {
+      const data = await apiJson('/api/values/refresh', { method: 'POST' });
+      if (data.success) {
+        status.textContent = '✅ Synchronizacja zakończona! Pobrano ' + (data.stats?.totalItems || '?') + ' itemów.';
+        status.style.color = 'var(--green)';
+        await loadValuesStats();
+        await searchValues();
+      } else {
+        status.textContent = '❌ Błąd synchronizacji';
+        status.style.color = 'var(--red)';
+      }
+    } catch (e) {
+      status.textContent = '❌ ' + e.message;
+      status.style.color = 'var(--red)';
+    }
+    
+    btn.disabled = false;
+    btn.innerHTML = '↻ Synchronizuj wartości';
+  });
+
+  // Refresh button
+  document.getElementById('values-refresh-btn').addEventListener('click', async () => {
+    await loadValuesStats();
+    await searchValues();
+  });
+
+  // Search on input with debounce
+  document.getElementById('values-search-input').addEventListener('input', () => {
+    clearTimeout(valuesRefreshTimer);
+    valuesRefreshTimer = setTimeout(searchValues, 300);
+  });
+
+  // Category filter change
+  document.getElementById('values-category-filter').addEventListener('change', searchValues);
 
   function adminClearVerify() {
     document.getElementById('admin-verify-server-seed').value = '';
