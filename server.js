@@ -93,6 +93,11 @@ function validateClientSeed(seed) {
 const db = require('./modules/db');
 const pf = require('./modules/provablyFair');
 const games = require('./modules/games');
+const values = require('./modules/values');
+
+// Inicjalizacja live values z petsimulatorvalues.com
+db.setValuesModule(values);
+values.init();
 
 // Inicjalizacja Provably Fair z bazą danych
 pf.init(db);
@@ -682,22 +687,14 @@ app.get('/api/inventory', requireAuth, (req, res) => {
     res.json({ items });
 });
 
-// GET /api/inventory/with-rap — inventarz z RAP
+// GET /api/inventory/with-rap — inventarz z RAP (live values)
 app.get('/api/inventory/with-rap', requireAuth, (req, res) => {
     const items = db.getInventory(req.username);
-    // Dodaj RAP z bazy petów jeśli brak
-    const petsDb = db.getPetsDatabase();
-    const itemsWithRap = items.map(item => {
-        const pet = petsDb.find(p => p.name === item.name);
-        return {
-            ...item,
-            rap: pet ? pet.rap : (item.rap || 0)
-        };
-    });
+    const itemsWithRap = db.getItemsWithRap(items);
     res.json({ items: itemsWithRap });
 });
 
-// GET /api/pets/search — wyszukiwarka petów/itemów
+// GET /api/pets/search — wyszukiwarka petów/itemów (live values)
 app.get('/api/pets/search', (req, res) => {
     const q = req.query.q || '';
     const category = req.query.category || 'all';
@@ -705,6 +702,51 @@ app.get('/api/pets/search', (req, res) => {
     let results = db.searchPets(q, category);
     if (limit > 0) results = results.slice(0, limit);
     res.json({ results });
+});
+
+// ═══════════════════════════════════════════════════════════════
+//  LIVE VALUES API
+// ═══════════════════════════════════════════════════════════════
+
+// GET /api/values — wszystkie wartości
+app.get('/api/values', (req, res) => {
+    const category = req.query.category || 'all';
+    const items = values.getItems(category);
+    res.json({ items, stats: values.getStats() });
+});
+
+// GET /api/values/search — wyszukiwarka wartości
+app.get('/api/values/search', (req, res) => {
+    const q = req.query.q || '';
+    const category = req.query.category || 'all';
+    const limit = parseInt(req.query.limit) || 20;
+    const results = values.searchItems(q, category, limit);
+    res.json({ results });
+});
+
+// GET /api/values/:name — wartość konkretnego itemu
+app.get('/api/values/:name', (req, res) => {
+    const name = req.params.name;
+    const value = values.getValue(name);
+    const all = values.getItems();
+    const item = all.find(i => i.name.toLowerCase() === name.toLowerCase());
+    if (item) {
+        res.json({ name: item.name, value: item.value, rap: item.rap, category: item.category, trend: item.trend });
+    } else {
+        res.json({ name, value, rap: 0, category: 'unknown', trend: 'neutral' });
+    }
+});
+
+// POST /api/values/refresh — wymuś odświeżenie (admin only)
+app.post('/api/values/refresh', requireAdmin, async (req, res) => {
+    const stats = await values.forceRefresh();
+    res.json({ success: true, stats });
+});
+
+// GET /api/values/stats — statystyki cache
+app.get('/api/values/stats', (req, res) => {
+    const stats = values.getStats();
+    res.json(stats);
 });
 
 // POST /api/deposit/request — zgłoszenie depozytu

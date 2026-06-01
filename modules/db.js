@@ -339,17 +339,39 @@ function removeInventoryItem(username, name, qty) {
     return true;
 }
 
-// ── Pets / Items database ──
-const PETS_DATABASE = [
-    { name: 'Huge Cat', category: 'Huge', rap: 50000 },
-    { name: 'Huge Dog', category: 'Huge', rap: 45000 },
-    { name: 'Huge Dragon', category: 'Huge', rap: 200000 },
-    { name: 'Huge Unicorn', category: 'Huge', rap: 150000 },
-    { name: 'Titanic Cat', category: 'Titanic', rap: 500000 },
-    { name: 'Titanic Dog', category: 'Titanic', rap: 450000 },
-    { name: 'Titanic Dragon', category: 'Titanic', rap: 2000000 },
-    { name: 'Gargantuan Cat', category: 'Gargantuan', rap: 5000000 },
-    { name: 'Gargantuan Dog', category: 'Gargantuan', rap: 4500000 },
+// ── Live Values (from modules/values.js) ──
+// PETS_DATABASE is now dynamically populated from petsimulatorvalues.com
+// Only fallback items for when the value service hasn't loaded yet
+const VALUES_FALLBACK = [
+    { name: 'Huge Cat', category: 'Huge', rap: 17500000000 },
+    { name: 'Huge Dog', category: 'Huge', rap: 875000000 },
+    { name: 'Huge Dragon', category: 'Huge', rap: 750000000 },
+    { name: 'Huge Unicorn', category: 'Huge', rap: 635000000 },
+    { name: 'Huge Storm Agony', category: 'Huge', rap: 4500000000 },
+    { name: 'Huge Santa Paws', category: 'Huge', rap: 2350000000 },
+    { name: 'Huge Forest Wyvern', category: 'Huge', rap: 2000000000 },
+    { name: 'Huge Hacked Cat', category: 'Huge', rap: 725000000 },
+    { name: 'Huge Pixel Cat', category: 'Huge', rap: 325000000 },
+    { name: 'Huge Pumpkin Cat', category: 'Huge', rap: 750000000 },
+    { name: 'Huge Lucky Cat', category: 'Huge', rap: 2350000000 },
+    { name: 'Huge Storm Agony', category: 'Huge', rap: 4500000000 },
+    { name: 'Huge Easter Cat', category: 'Huge', rap: 2300000000 },
+    { name: 'Huge Super Corgi', category: 'Huge', rap: 710000000 },
+    { name: 'Huge Cupcake', category: 'Huge', rap: 390000000 },
+    { name: 'Huge Pony', category: 'Huge', rap: 735000000 },
+    { name: 'Huge Festive Cat', category: 'Huge', rap: 600000000 },
+    { name: 'Huge Gargoyle Dragon', category: 'Huge', rap: 1350000000 },
+    { name: 'Rainbow Huge Cat', category: 'Huge', rap: 35000000000 },
+    { name: 'Rainbow Huge Dog', category: 'Huge', rap: 5400000000 },
+    { name: 'Rainbow Huge Dragon', category: 'Huge', rap: 4450000000 },
+    { name: 'Rainbow Huge Storm Agony', category: 'Huge', rap: 5100000000 },
+    { name: 'Rainbow Huge Santa Paws', category: 'Huge', rap: 7600000000 },
+    { name: 'Golden Huge Cat', category: 'Huge', rap: 88000000000 },
+    { name: 'Titanic Cat', category: 'Titanic', rap: 999000000000000 },
+    { name: 'Titanic Dog', category: 'Titanic', rap: 500000000000000 },
+    { name: 'Titanic Dragon', category: 'Titanic', rap: 800000000000000 },
+    { name: 'Gargantuan Cat', category: 'Gargantuan', rap: 5000000000000 },
+    { name: 'Gargantuan Dog', category: 'Gargantuan', rap: 4500000000000 },
     { name: 'Gem 💎 1M', category: 'Gem', rap: 1000000 },
     { name: 'Gem 💎 10M', category: 'Gem', rap: 10000000 },
     { name: 'Gem 💎 25M', category: 'Gem', rap: 25000000 },
@@ -358,8 +380,27 @@ const PETS_DATABASE = [
     { name: 'Gem 💎 500M', category: 'Gem', rap: 500000000 },
 ];
 
+let valuesModule = null;
+
+function setValuesModule(mod) {
+    valuesModule = mod;
+}
+
 function searchPets(query, category) {
-    let results = PETS_DATABASE;
+    // Try live values first, fallback to static
+    if (valuesModule && typeof valuesModule.searchItems === 'function') {
+        const liveResults = valuesModule.searchItems(query, category, 50);
+        if (liveResults && liveResults.length > 0) {
+            return liveResults.map(i => ({
+                name: i.name,
+                category: i.category,
+                rap: i.value || i.rap || 0
+            }));
+        }
+    }
+    
+    // Fallback
+    let results = VALUES_FALLBACK;
     if (query) {
         const q = query.toLowerCase();
         results = results.filter(p => p.name.toLowerCase().includes(q));
@@ -371,7 +412,37 @@ function searchPets(query, category) {
 }
 
 function getPetsDatabase() {
-    return PETS_DATABASE;
+    // Try live values first
+    if (valuesModule && typeof valuesModule.getItems === 'function') {
+        const liveItems = valuesModule.getItems();
+        if (liveItems && liveItems.length > 0) {
+            return liveItems.map(i => ({
+                name: i.name,
+                category: i.category,
+                rap: i.value || i.rap || 0
+            }));
+        }
+    }
+    return VALUES_FALLBACK;
+}
+
+function getItemValue(itemName) {
+    // Try live value first
+    if (valuesModule && typeof valuesModule.getValue === 'function') {
+        const val = valuesModule.getValue(itemName);
+        if (val > 0) return val;
+    }
+    // Fallback
+    const item = VALUES_FALLBACK.find(i => i.name === itemName);
+    return item ? item.rap : 0;
+}
+
+function getItemsWithRap(items) {
+    // Add live RAP values to inventory items
+    return items.map(item => ({
+        ...item,
+        rap: getItemValue(item.name) || item.rap || 0
+    }));
 }
 
 // ── Requests (deposit/withdraw) ──
@@ -530,7 +601,7 @@ module.exports = {
     getAllSeedRecords, getRevealedSeeds,
     findPlayerByToken, updatePlayerClientSeed,
     getInventory, saveInventory, addInventoryItem, removeInventoryItem,
-    searchPets, getPetsDatabase,
+    searchPets, getPetsDatabase, getItemValue, getItemsWithRap, setValuesModule,
     loadRequests, saveRequests,
     mergeGems, GEM_MERGE_RECIPES,
     getPublicProfile,
