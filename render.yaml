@@ -1,13 +1,8 @@
 services:
   - type: web
     name: bflip
-    # ── UWAGA: Wybierz metodę deploymentu ──
-    # Opcja 1 (Node buildpack — obecna): runtime: node, buildCommand, startCommand
-    # Opcja 2 (Docker — odkomentuj poniżej): usuń runtime/buildCommand/startCommand, Render auto-wykryje Dockerfile
-    runtime: node
+    runtime: docker  # Render wykrywa Dockerfile automatycznie
     plan: starter  # ⚠️ Redis wymaga płatnego planu (Starter od $7/mies.)
-    buildCommand: npm install
-    startCommand: npm start
     healthCheckPath: /health
     # ── Autoscaling (wymaga planu Pro na Renderze) ────────────
     # Na planie Starter/Indie to ustawienie jest ignorowane.
