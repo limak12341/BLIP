@@ -453,11 +453,21 @@
     }[m]));
   }
   function fmt(n) {
-    const v = Number(n);
-    if (v < 1000) return String(v);
-    if (v < 1_000_000) return (v / 1000).toFixed(v < 10_000 ? 1 : 0) + 'K';
-    if (v < 1_000_000_000) return (v / 1_000_000).toFixed(v < 10_000_000 ? 1 : 0) + 'M';
-    return (v / 1_000_000_000).toFixed(v < 10_000_000_000 ? 1 : 0) + 'B';
+    const raw = Number(n);
+    const v = raw / 1000;
+    if (v < 1) return String(raw);
+    if (v < 1000) {
+      if (v < 10) return v.toFixed(1) + 'K';
+      return Math.round(v) + 'K';
+    }
+    if (v < 1_000_000) {
+      const m = v / 1000;
+      if (m < 10) return m.toFixed(1) + 'M';
+      return Math.round(m) + 'M';
+    }
+    const b = v / 1_000_000;
+    if (b < 10) return b.toFixed(1) + 'B';
+    return Math.round(b) + 'B';
   }
   function timeAgo(ts) {
     const s = Math.floor((Date.now() - ts) / 1000);
@@ -1696,10 +1706,10 @@
   }
 
   function formatBigNumber(num) {
-    if (num >= 1_000_000_000_000) return (num / 1_000_000_000_000).toFixed(1) + 'T';
-    if (num >= 1_000_000_000) return (num / 1_000_000_000).toFixed(1) + 'B';
-    if (num >= 1_000_000) return (num / 1_000_000).toFixed(1) + 'M';
-    if (num >= 1_000) return (num / 1_000).toFixed(1) + 'K';
+    const v = num / 1000;
+    if (v >= 1_000_000) return (v / 1_000_000).toFixed(1) + 'T';
+    if (v >= 1_000) return (v / 1_000).toFixed(1) + 'B';
+    if (v >= 1) return v.toFixed(1) + 'M';
     return String(num);
   }
 
