@@ -212,11 +212,21 @@ function hasRole(username, role) {
 
 // ── Utility ──
 function fmt(n) {
-    const v = Number(n);
-    if (v < 1000) return String(v);
-    if (v < 1_000_000) return (v / 1000).toFixed(v < 10_000 ? 1 : 0) + 'K';
-    if (v < 1_000_000_000) return (v / 1_000_000).toFixed(v < 10_000_000 ? 1 : 0) + 'M';
-    return (v / 1_000_000_000).toFixed(v < 10_000_000_000 ? 1 : 0) + 'B';
+    const raw = Number(n);
+    const v = raw / 1000; // scale down by 1000
+    if (v < 1) return String(raw);
+    if (v < 1_000) {
+        if (v < 10) return v.toFixed(1) + 'K';
+        return Math.round(v) + 'K';
+    }
+    if (v < 1_000_000) {
+        const m = v / 1_000;
+        if (m < 10) return m.toFixed(1) + 'M';
+        return Math.round(m) + 'M';
+    }
+    const b = v / 1_000_000;
+    if (b < 10) return b.toFixed(1) + 'B';
+    return Math.round(b) + 'B';
 }
 
 
@@ -497,6 +507,39 @@ function mergeGems(username, recipeIdx) {
 }
 
 // ── Public profile data ──
+// ── Level calculation ──
+// Level 1-10:  0 – 5M wagered (500K per level)
+// Level 11-49: 5.1M – 50M wagered (~1.15M per level)
+// Level 50-98: 50.1M – 250M wagered (~4.08M per level)
+// Level 99+:   250.1M+ wagered (5M per level)
+function getPlayerLevel(xp) {
+    xp = xp || 0;
+    if (xp < 5_100_000) { // level 10 max = 5M, level 11 starts at 5.1M
+        const lvl = Math.floor(xp / 500_000) + 1;
+        const xpInLevel = xp % 500_000;
+        const name = lvl >= 11 ? 'Pro' : 'Enthusiast';
+        return { level: Math.min(lvl, 10), levelName: name, xpInLevel, nextLevelXp: 500_000 };
+    } else if (xp < 50_000_000) {
+        const progress = xp - 5_000_000;
+        const perLevel = Math.round(44_900_000 / 39); // ~1,151,282 per level
+        const lvl = Math.floor(progress / perLevel) + 11;
+        const xpInLevel = progress % perLevel;
+        return { level: Math.min(lvl, 49), levelName: 'Pro', xpInLevel, nextLevelXp: perLevel };
+    } else if (xp < 250_000_000) {
+        const progress = xp - 50_000_000;
+        const perLevel = Math.round(199_900_000 / 49); // ~4,079,592 per level
+        const lvl = Math.floor(progress / perLevel) + 50;
+        const xpInLevel = progress % perLevel;
+        return { level: Math.min(lvl, 98), levelName: 'Ultra', xpInLevel, nextLevelXp: perLevel };
+    } else {
+        const progress = xp - 250_000_000;
+        const perLevel = 5_000_000;
+        const lvl = Math.floor(progress / perLevel) + 99;
+        const xpInLevel = progress % perLevel;
+        return { level: lvl, levelName: 'Mega', xpInLevel, nextLevelXp: perLevel };
+    }
+}
+
 function getPublicProfile(username) {
     const player = getPlayer(username);
     const gameHistory = player.gameHistory || [];
@@ -505,17 +548,15 @@ function getPublicProfile(username) {
     const losses = total - wins;
     const warnings = loadWarnings();
     
-    // Level system
     const xp = player.totalWagered || 0;
-    const level = Math.floor(xp / 10000) + 1;
-    const levelName = level >= 100 ? 'Mega' : level >= 51 ? 'Ultra' : level >= 16 ? 'Pro' : level >= 1 ? 'Enthusiast' : 'Basic';
+    const lvlInfo = getPlayerLevel(xp);
     
     return {
         username: player.username,
         avatarUrl: player.avatarUrl || '',
         role: (player.roles && player.roles.length > 0) ? player.roles[0] : '',
-        level: level,
-        levelName: levelName,
+        level: lvlInfo.level,
+        levelName: lvlInfo.levelName,
         total,
         wins,
         losses,
@@ -538,12 +579,13 @@ function getPlayerStats(username) {
     const losses = total - wins;
     const profit = (player.totalWon || 0) - (player.totalWagered || 0);
     const xp = player.totalWagered || 0;
-    const level = Math.floor(xp / 10000) + 1;
-    const levelName = level >= 100 ? 'Mega' : level >= 51 ? 'Ultra' : level >= 16 ? 'Pro' : level >= 1 ? 'Enthusiast' : 'Basic';
-    const xpInLevel = xp % 10000;
+    const lvlInfo = getPlayerLevel(xp);
     return {
         total, wins, losses, profit,
-        level, levelName, xpInLevel, nextLevelXp: 10000,
+        level: lvlInfo.level,
+        levelName: lvlInfo.levelName,
+        xpInLevel: lvlInfo.xpInLevel,
+        nextLevelXp: lvlInfo.nextLevelXp,
         coins: player.coins || 0,
         gems: player.gems || 0
     };

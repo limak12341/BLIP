@@ -4664,3 +4664,169 @@ body.sidebar-mobile-open {
   color: var(--green);
   border: 1px solid rgba(46,213,115,.25);
 }
+
+
+/* NEW JACKPOT LAYOUT */
+.jp-main-layout { display: flex; gap: 16px; }
+.jp-wheel-section { flex: 0 0 320px; }
+.jp-wheel-card { background: var(--surf); border: 1px solid var(--border); border-radius: 20px; padding: 28px 24px; display: flex; flex-direction: column; align-items: center; gap: 20px; position: relative; overflow: hidden; }
+.jp-wheel-card::before { content: ''; position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 0%, rgba(240,180,41,.06) 0%, transparent 60%); pointer-events: none; }
+.jp-wheel-circle { position: relative; width: 140px; height: 140px; }
+.jp-wheel-svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.jp-wheel-bg { fill: none; stroke: var(--surf3); stroke-width: 8; }
+.jp-wheel-progress { fill: none; stroke: var(--gold); stroke-width: 8; stroke-linecap: round; transition: stroke-dashoffset .5s ease; }
+.jp-wheel-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+.jp-wheel-icon { font-size: 1.6rem; }
+.jp-wheel-time { font-family: 'Orbitron', monospace; font-size: 1.1rem; font-weight: 900; color: var(--gold); }
+.jp-wheel-pot { text-align: center; }
+.jp-pot-value { font-family: 'Orbitron', monospace; font-size: 1.6rem; font-weight: 900; background: linear-gradient(135deg, var(--gold), #f5b342, var(--gold)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+.jp-pot-label { font-size: .7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
+.jp-prize-box { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 16px; background: rgba(46,213,115,.08); border: 1px solid rgba(46,213,115,.2); border-radius: 10px; width: 100%; }
+.jp-prize-label { font-size: .65rem; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+.jp-prize-value { font-family: 'Orbitron', monospace; font-size: 1rem; font-weight: 700; color: var(--green); }
+.jp-wheel-winner { text-align: center; padding: 10px 0; }
+.jp-wheel-winner-icon { font-size: 2rem; }
+.jp-wheel-winner-name { font-family: 'Orbitron', monospace; font-size: 1rem; font-weight: 700; color: var(--gold); margin-top: 4px; }
+.jp-wheel-winner-detail { font-size: .72rem; color: var(--muted); margin-top: 2px; }
+.jp-participants-col { flex: 1; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.jp-participants-list { max-height: 360px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 4px 0; }
+.jp-participants-empty { padding: 20px; text-align: center; color: var(--muted); font-size: .85rem; }
+.jp-part-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--surf2); border: 1px solid var(--border); border-radius: 10px; transition: background .15s; }
+.jp-part-avatar { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; border: 2px solid var(--surf3); flex-shrink: 0; }
+.jp-part-avatar-empty { width: 32px; height: 32px; border-radius: 50%; background: var(--surf3); border: 2px dashed var(--border2); display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: .7rem; flex-shrink: 0; }
+.jp-part-name { flex: 1; font-weight: 600; font-size: .82rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jp-part-tickets { font-size: .72rem; color: var(--muted); white-space: nowrap; }
+.jp-part-pct { font-size: .72rem; color: var(--gold); font-weight: 700; min-width: 44px; text-align: right; }
+.jp-history-btn { width: 100%; padding: 10px 16px; background: var(--surf2); border: 1px solid var(--border); border-radius: 10px; color: var(--muted); font-size: .78rem; font-weight: 600; cursor: pointer; transition: all .12s; text-align: center; font-family: inherit; }
+.jp-history-btn:hover { border-color: var(--gold); color: var(--gold); }
+.jp-header-stats { display: flex; align-items: center; gap: 8px; }
+.jp-stat-chip { font-size: .68rem; font-weight: 700; padding: 4px 10px; border-radius: 8px; background: var(--surf2); border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+.jp-stat-chip span { color: var(--text); }
+.jp-container { max-width: 780px; }
+
+/* Jackpot Join Modal */
+.jp-join-section { display: flex; flex-direction: column; gap: 14px; }
+.jp-join-info { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: var(--surf2); border: 1px solid var(--border); border-radius: 10px; }
+.jp-join-info-label { font-size: .78rem; color: var(--muted); }
+.jp-join-info-value { font-family: 'Orbitron', monospace; font-size: .9rem; font-weight: 700; color: var(--gold); }
+.jp-join-section-label { font-size: .75rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+.jp-coin-deposit { display: flex; flex-direction: column; gap: 8px; }
+.jp-coin-input { width: 100%; padding: 12px 14px; background: var(--surf2); border: 1px solid var(--border2); border-radius: 10px; color: var(--text); font-size: .9rem; font-family: 'Orbitron', monospace; font-weight: 700; outline: none; transition: border-color .15s; }
+.jp-coin-input:focus { border-color: var(--gold); }
+.jp-coin-input::placeholder { font-family: 'Inter', sans-serif; font-weight: 600; font-size: .8rem; color: var(--muted); }
+.jp-quick-amounts { display: flex; gap: 6px; flex-wrap: wrap; }
+.jp-quick-btn { padding: 6px 14px; border-radius: 8px; background: var(--surf2); border: 1px solid var(--border); color: var(--muted); font-size: .75rem; font-weight: 600; cursor: pointer; transition: all .12s; font-family: inherit; }
+.jp-quick-btn:hover { border-color: var(--gold); color: var(--gold); }
+.jp-join-total { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: rgba(240,180,41,.08); border: 1px solid rgba(240,180,41,.2); border-radius: 10px; font-size: .85rem; font-weight: 600; color: var(--muted); }
+.jp-join-total strong { font-family: 'Orbitron', monospace; font-size: 1rem; color: var(--gold); }
+.jp-join-error { padding: 10px 14px; background: rgba(232,65,24,.1); border: 1px solid rgba(232,65,24,.2); border-radius: 10px; color: var(--red); font-size: .82rem; font-weight: 600; text-align: center; display: none; }
+.jp-items-loading { text-align: center; padding: 20px; color: var(--muted); }
+.jp-loading { text-align: center; padding: 30px; color: var(--muted); }
+.jp-history-list { display: flex; flex-direction: column; gap: 6px; max-height: 400px; overflow-y: auto; }
+.jp-history-item { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--surf); border: 1px solid var(--border); border-radius: 10px; font-size: .8rem; }
+.jp-h-time { font-size: .68rem; color: var(--muted); min-width: 50px; }
+.jp-h-winner { flex: 1; font-weight: 700; }
+.jp-h-prize { font-weight: 700; color: var(--gold); white-space: nowrap; }
+.jp-h-players { font-size: .72rem; color: var(--muted); white-space: nowrap; }
+.jp-empty { text-align: center; padding: 40px 20px; color: var(--muted); }
+
+/* Create Game Options */
+.create-options-row { display: flex; gap: 8px; margin-top: 14px; }
+.create-option-btn { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 14px 10px; background: var(--surf2); border: 2px solid transparent; border-radius: 12px; color: var(--muted); cursor: pointer; transition: all .15s; font-family: inherit; }
+.create-option-btn:hover { border-color: var(--border2); color: var(--text); }
+.create-option-btn.active { border-color: var(--gold); background: rgba(240,180,41,.08); color: var(--gold); }
+.opt-icon { font-size: 1.3rem; }
+.opt-label { font-weight: 700; font-size: .82rem; }
+.opt-sub { font-size: .65rem; color: var(--muted); text-align: center; }
+.gc-mode-badge { padding: 3px 8px; border-radius: 6px; font-size: .65rem; font-weight: 700; }
+.gc-mode-badge.wild { background: rgba(240,180,41,.15); color: var(--gold); border: 1px solid rgba(240,180,41,.3); }
+.gc-mode-badge.hugebet { background: rgba(232,65,24,.12); color: var(--red); border: 1px solid rgba(232,65,24,.25); }
+.gc-mode-badges-row { display: flex; gap: 4px; justify-content: center; }
+
+/* Live Feed */
+.live-feed { background: var(--surf); border: 1px solid var(--border); border-radius: 14px; padding: 14px 18px; margin-bottom: 14px; }
+.live-feed-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.live-feed-title { font-weight: 700; font-size: .82rem; }
+.live-feed-count { font-size: .7rem; color: var(--muted); }
+.live-feed-scroll { max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.live-feed-empty { text-align: center; padding: 20px; color: var(--muted); }
+.lf-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: var(--surf2); border: 1px solid var(--border); border-radius: 8px; font-size: .78rem; }
+.lf-time { font-size: .65rem; color: var(--muted); min-width: 36px; }
+.lf-players { flex: 1; display: flex; align-items: center; gap: 4px; min-width: 0; }
+.lf-winner { font-weight: 700; color: var(--green); }
+.lf-vs { color: var(--muted); font-size: .65rem; }
+.lf-loser { color: var(--muted); }
+.lf-amount { font-family: 'Orbitron', monospace; font-size: .75rem; font-weight: 700; color: var(--gold); flex-shrink: 0; }
+.gi-vs-badge { width: 48px; height: 48px; border-radius: 50%; background: var(--surf2); border: 2px solid var(--border2); display: flex; align-items: center; justify-content: center; font-size: 1.2rem; }
+
+/* Merge Gems */
+.modal-merge { width: 460px; max-height: 85vh; }
+.merge-content { display: flex; flex-direction: column; gap: 14px; }
+.merge-loading { text-align: center; padding: 30px; color: var(--muted); }
+.merge-empty { text-align: center; padding: 30px; color: var(--muted); }
+.merge-intro { font-size: .82rem; color: var(--muted); margin-bottom: 8px; }
+.merge-gems-list { display: flex; flex-direction: column; gap: 8px; }
+.merge-recipe { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: var(--surf2); border: 1px solid var(--border); border-radius: 10px; }
+.merge-recipe-info { flex: 1; display: flex; align-items: center; gap: 8px; }
+.merge-arrow { color: var(--muted); font-size: .8rem; }
+.merge-qty { font-family: 'Orbitron', monospace; font-size: .78rem; font-weight: 700; color: var(--gold); }
+.merge-name { font-weight: 600; font-size: .78rem; }
+.merge-have { font-size: .7rem; }
+.have-enough { color: var(--green); }
+.have-not { color: var(--red); }
+.merge-btn { padding: 8px 16px; background: var(--purple); border: none; border-radius: 8px; color: #fff; font-weight: 700; font-size: .78rem; cursor: pointer; transition: .15s; white-space: nowrap; flex-shrink: 0; }
+.merge-btn:disabled { background: var(--surf3); color: var(--muted); cursor: not-allowed; }
+.merge-message { font-size: .82rem; font-weight: 700; padding: 8px 12px; border-radius: 8px; text-align: center; }
+.merge-message.success { background: rgba(46,213,115,.1); color: var(--green); }
+.merge-message.error { background: rgba(232,65,24,.1); color: var(--red); }
+.merge-inv-btn { width: 100%; padding: 10px 16px; background: rgba(124,92,252,.1); border: 1px solid rgba(124,92,252,.25); border-radius: 10px; color: var(--purple); font-weight: 700; font-size: .82rem; cursor: pointer; transition: .15s; margin-top: 8px; font-family: inherit; }
+
+/* Login progress & Remember me */
+.remember-me-wrap { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; cursor: pointer; justify-content: center; }
+.remember-me-checkbox { width: 16px; height: 16px; accent-color: var(--purple); cursor: pointer; }
+.remember-me-label { font-size: .78rem; color: var(--muted); font-weight: 600; }
+.login-progress-bar { width: 100%; height: 3px; background: var(--surf2); border-radius: 3px; margin-bottom: 20px; overflow: hidden; }
+.login-progress-fill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--purple), #9b7eff); border-radius: 3px; transition: width .4s ease; }
+.step-connector { width: 32px; height: 2px; background: var(--border2); border-radius: 2px; overflow: hidden; }
+.step-connector-fill { height: 100%; width: 0%; background: var(--purple); transition: width .4s ease; }
+
+/* Profile toggle button */
+.profile-toggle-btn { width: 24px; height: 24px; background: var(--surf2); border: 1px solid var(--border); border-radius: 6px; color: var(--muted); cursor: pointer; font-size: .7rem; display: flex; align-items: center; justify-content: center; transition: .15s; flex-shrink: 0; }
+.profile-toggle-btn:hover { color: var(--text); background: var(--surf3); }
+
+/* Provably Fair Modal */
+.modal-pf { width: 540px; max-height: 85vh; display: flex; flex-direction: column; }
+.pf-content { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; padding-right: 4px; }
+.pf-intro { background: rgba(124,92,252,.06); border: 1px solid rgba(124,92,252,.15); border-radius: 12px; padding: 16px; display: flex; align-items: flex-start; gap: 12px; }
+.pf-intro-icon { font-size: 2rem; flex-shrink: 0; }
+.pf-intro-text { font-size: .82rem; color: var(--muted); line-height: 1.6; }
+.pf-section { background: var(--surf2); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+.pf-section-title { font-weight: 700; font-size: .85rem; color: var(--text); margin-bottom: 10px; }
+.pf-desc { font-size: .78rem; color: var(--muted); margin-bottom: 12px; line-height: 1.5; }
+.pf-status-refresh { padding: 6px 14px; background: var(--surf); border: 1px solid var(--border); border-radius: 8px; color: var(--muted); font-size: .75rem; font-weight: 600; cursor: pointer; transition: .15s; font-family: inherit; }
+.pf-status-refresh:hover { color: var(--text); }
+.pf-client-seed-row { display: flex; gap: 8px; }
+.pf-input { flex: 1; padding: 10px 14px; background: var(--surf); border: 1px solid var(--border2); border-radius: 10px; color: var(--text); font-size: .85rem; font-family: 'Orbitron', monospace; outline: none; transition: border-color .15s; }
+.pf-input:focus { border-color: var(--purple); }
+.pf-btn { padding: 10px 18px; border: none; border-radius: 10px; font-weight: 700; font-size: .82rem; cursor: pointer; transition: .15s; white-space: nowrap; font-family: inherit; }
+.pf-btn-primary { background: var(--purple); color: #fff; box-shadow: 0 3px 12px rgba(124,92,252,.3); }
+.pf-btn-primary:hover { background: #9b7eff; }
+.pf-btn-secondary { background: var(--surf); border: 1px solid var(--border2); color: var(--muted); }
+.pf-client-status { font-size: .78rem; font-weight: 600; margin-top: 8px; }
+.pf-verify-form { display: flex; flex-direction: column; gap: 8px; }
+.pf-verify-label { font-size: .72rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+.pf-select { padding: 10px 14px; background: var(--surf); border: 1px solid var(--border2); border-radius: 10px; color: var(--text); font-size: .85rem; font-family: inherit; outline: none; }
+.pf-verify-result { font-size: .85rem; font-weight: 600; padding: 10px; border-radius: 8px; }
+.pf-seed-history-title { font-weight: 700; font-size: .85rem; color: var(--text); margin-bottom: 10px; }
+.pf-step { display: flex; align-items: flex-start; gap: 10px; }
+.pf-step-num { width: 24px; height: 24px; border-radius: 50%; background: var(--surf); border: 1px solid var(--border2); display: flex; align-items: center; justify-content: center; font-size: .7rem; font-weight: 800; color: var(--purple); flex-shrink: 0; }
+.pf-step-text { font-size: .8rem; color: var(--muted); line-height: 1.5; flex: 1; }
+.pf-loading { text-align: center; padding: 20px; color: var(--muted); }
+
+/* Responsive Jackpot */
+@media (max-width: 720px) {
+  .jp-main-layout { flex-direction: column; }
+  .jp-wheel-section { flex: 1; }
+  .jp-wheel-circle { width: 110px; height: 110px; }
+  .jp-container { max-width: 100%; }
+}

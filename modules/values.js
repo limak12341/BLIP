@@ -49,11 +49,21 @@ function parseValue(str) {
 
 // ── Formatowanie liczby na czytelny string (dla API) ──
 function formatValue(num) {
-    if (num >= 1_000_000_000_000) return (num / 1_000_000_000_000).toFixed(1) + 'T';
-    if (num >= 1_000_000_000) return (num / 1_000_000_000).toFixed(1) + 'B';
-    if (num >= 1_000_000) return (num / 1_000_000).toFixed(1) + 'M';
-    if (num >= 1_000) return (num / 1_000).toFixed(1) + 'K';
-    return String(num);
+    const raw = Number(num);
+    const v = raw / 1000; // scale down by 1000
+    if (v < 1) return String(raw);
+    if (v < 1_000) {
+        if (v < 10) return v.toFixed(1) + 'K';
+        return Math.round(v) + 'K';
+    }
+    if (v < 1_000_000) {
+        const m = v / 1_000;
+        if (m < 10) return m.toFixed(1) + 'M';
+        return Math.round(m) + 'M';
+    }
+    const b = v / 1_000_000;
+    if (b < 10) return b.toFixed(1) + 'B';
+    return Math.round(b) + 'B';
 }
 
 // ── Load / Save cache ──

@@ -431,84 +431,71 @@
       <!-- TAB: JACKPOT -->
       <div id="tab-jackpot" class="tab-content" style="display:none">
         <div class="jp-container">
-          <!-- Header -->
+          <!-- Header with stats row -->
           <div class="jp-header">
             <div class="jp-title-row">
               <span class="jp-title-icon">🎰</span>
               <span class="jp-title">Jackpot</span>
             </div>
-            <div class="jp-status-badge" id="jp-status-badge">🟢 Waiting</div>
-          </div>
-
-          <!-- Główna karta jackpota -->
-          <div class="jp-main-card">
-            <div class="jp-pot-display">
-              <div class="jp-pot-icon">🏆</div>
-              <div class="jp-pot-value" id="jp-pot-value">🪙 0</div>
-              <div class="jp-pot-label">Łączna pula</div>
-            </div>
-
-            <!-- Timer -->
-            <div class="jp-timer-wrap" id="jp-timer-wrap">
-              <div class="jp-timer-circle" id="jp-timer-circle">
-                <svg class="jp-timer-svg" viewBox="0 0 100 100">
-                  <circle class="jp-timer-bg" cx="50" cy="50" r="45"/>
-                  <circle class="jp-timer-progress" id="jp-timer-progress" cx="50" cy="50" r="45"/>
-                </svg>
-                <div class="jp-timer-text" id="jp-timer-text">60s</div>
-              </div>
-              <div class="jp-timer-label">Do końca rundy</div>
-            </div>
-
-            <!-- House fee info -->
-            <div class="jp-house-fee">
-              <span class="jp-fee-label">Prowizja</span>
-              <span class="jp-fee-value" id="jp-fee-value">10%</span>
-            </div>
-
-            <!-- Prize info -->
-            <div class="jp-prize-info" id="jp-prize-info" style="display:none">
-              <div class="jp-prize-label">Nagroda dla zwycięzcy</div>
-              <div class="jp-prize-value" id="jp-prize-value">🪙 0</div>
+            <div class="jp-header-stats">
+              <span class="jp-stat-chip">🎫 <span id="jp-tickets-value">0</span></span>
+              <span class="jp-stat-chip">👥 <span id="jp-participants-count">0</span></span>
+              <span class="jp-stat-chip" id="jp-fee-value">10% fee</span>
+              <span class="jp-status-badge" id="jp-status-badge">🟢 Waiting</span>
             </div>
           </div>
 
-          <!-- Tickets info -->
-          <div class="jp-tickets-info">
-            <span class="jp-tickets-label">Łącznie biletów:</span>
-            <span class="jp-tickets-value" id="jp-tickets-value">0</span>
-          </div>
-
-          <!-- Participants list -->
-          <div class="jp-participants-section">
-            <div class="jp-participants-header">
-              <span class="jp-participants-title">👥 Uczestnicy</span>
-              <span class="jp-participants-count" id="jp-participants-count">0</span>
-            </div>
-            <div class="jp-participants-list" id="jp-participants-list">
-              <div class="jp-participants-empty">Brak uczestników. Dołącz pierwszy!</div>
-            </div>
-          </div>
-
-          <!-- Winner announcement -->
-          <div class="jp-winner-section" id="jp-winner-section" style="display:none">
-            <div class="jp-winner-announcement">
-              <div class="jp-winner-icon">👑</div>
-              <div class="jp-winner-content">
-                <div class="jp-winner-label">Zwycięzca!</div>
-                <div class="jp-winner-name" id="jp-winner-name">—</div>
-                <div class="jp-winner-detail" id="jp-winner-detail"></div>
+          <!-- Main jackpot area: wheel + participants side by side -->
+          <div class="jp-main-layout">
+            <!-- Left: Wheel / Timer -->
+            <div class="jp-wheel-section">
+              <div class="jp-wheel-card">
+                <!-- Timer circle as wheel -->
+                <div class="jp-wheel-circle" id="jp-timer-circle">
+                  <svg class="jp-wheel-svg" viewBox="0 0 100 100">
+                    <circle class="jp-wheel-bg" cx="50" cy="50" r="45"/>
+                    <circle class="jp-wheel-progress" id="jp-timer-progress" cx="50" cy="50" r="45" 
+                      stroke-dasharray="282.74" stroke-dashoffset="0"/>
+                  </svg>
+                  <div class="jp-wheel-center">
+                    <div class="jp-wheel-icon">🎰</div>
+                    <div class="jp-wheel-time" id="jp-timer-text">60s</div>
+                  </div>
+                </div>
+                <div class="jp-wheel-pot">
+                  <div class="jp-pot-value" id="jp-pot-value">🪙 0</div>
+                  <div class="jp-pot-label">Pula jackpota</div>
+                </div>
+                <div class="jp-prize-box" id="jp-prize-info" style="display:none">
+                  <span class="jp-prize-label">🏆 Nagroda</span>
+                  <span class="jp-prize-value" id="jp-prize-value">🪙 0</span>
+                </div>
+                <!-- Winner display -->
+                <div class="jp-wheel-winner" id="jp-winner-section" style="display:none">
+                  <div class="jp-wheel-winner-icon">👑</div>
+                  <div class="jp-wheel-winner-name" id="jp-winner-name">—</div>
+                  <div class="jp-wheel-winner-detail" id="jp-winner-detail"></div>
+                </div>
               </div>
             </div>
-          </div>
 
-          <!-- Action buttons -->
-          <div class="jp-actions">
-            <button class="jp-join-btn btn-glow" id="jp-join-btn" onclick="openJackpotJoinModal()">
-              <span class="jp-join-icon">🔥</span>
-              <span class="jp-join-label">Dołącz do Jackpota</span>
-            </button>
-            <button class="jp-history-btn" onclick="openJackpotHistory()">📜 Historia</button>
+            <!-- Right: Participants list -->
+            <div class="jp-participants-col">
+              <div class="jp-participants-section">
+                <div class="jp-participants-header">
+                  <span>📋 Lista uczestników</span>
+                </div>
+                <div class="jp-participants-list" id="jp-participants-list">
+                  <div class="jp-participants-empty">Brak uczestników. Dołącz pierwszy!</div>
+                </div>
+              </div>
+              <!-- Join button -->
+              <button class="jp-join-btn btn-glow" id="jp-join-btn" onclick="openJackpotJoinModal()">
+                🔥 Dołącz do Jackpota
+              </button>
+              <!-- History button -->
+              <button class="jp-history-btn" onclick="openJackpotHistory()">📜 Historia jackpota</button>
+            </div>
           </div>
         </div>
       </div>
@@ -1077,7 +1064,12 @@
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
-<script src="script.js"></script>
+<script src="/js/utils.js"></script>
+<script src="/js/app.js"></script>
+<script src="/js/chat.js"></script>
+<script src="/js/coinflip.js"></script>
+<script src="/js/jackpot.js"></script>
+<script src="/js/provably-fair.js"></script>
 <script>
 // ── LOGOWANIE: Zapamiętaj mnie ──────────────────────────
 (function loadRememberedUser() {
